@@ -1,4 +1,4 @@
-// Schéma Postgres, identique sur Neon (production) et PGlite (local).
+// Schéma Postgres, identique en production (Prisma Postgres ou tout autre Postgres) et sur PGlite (local).
 export const SCHEMA = `
 create table if not exists automations (
   id serial primary key,

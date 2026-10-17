@@ -1,29 +1,36 @@
-// Accès à Postgres : Neon si DATABASE_URL est défini (Vercel), sinon PGlite en local.
+// Accès à Postgres : n'importe quel Postgres si DATABASE_URL est défini (Prisma Postgres, Neon, Render…),
+// sinon PGlite en local.
 import { mkdirSync } from "node:fs";
+import pg from "pg";
 import { SCHEMA } from "./schema";
 
 type Query = (text: string, params?: unknown[]) => Promise<Record<string, unknown>[]>;
 
 const store = globalThis as unknown as { __memopipeDb?: Promise<Query> };
 
-const statements = () => SCHEMA.split(";").map((s) => s.trim()).filter(Boolean);
-
 async function connect(): Promise<Query> {
   const url = process.env.DATABASE_URL;
   if (url) {
-    const { neon } = await import("@neondatabase/serverless");
-    const sql = neon(url);
-    const [ready] = (await sql.query("select to_regclass('public.console_saves') as t")) as { t: string | null }[];
-    if (!ready?.t) for (const stmt of statements()) await sql.query(stmt);
-    return (text, params = []) => sql.query(text, params) as Promise<Record<string, unknown>[]>;
+    // pg traite déjà « require » comme « verify-full » : on l'écrit explicitement pour éviter l'avertissement.
+    const connectionString = url.replace(/sslmode=(require|prefer|verify-ca)\b/, "sslmode=verify-full");
+    const pool = new pg.Pool({ connectionString, max: 5, idleTimeoutMillis: 30_000 });
+    await pool.query(SCHEMA);
+    return async (text, params = []) => (await pool.query(text, params)).rows;
+  }
+
+  if (process.env.RENDER || process.env.VERCEL) {
+    throw new Error(
+      "DATABASE_URL manquant : en production, branchez une base Postgres (Prisma Postgres, Neon, Render…). " +
+        "PGlite, le Postgres embarqué prévu pour le local, dépasse 512 Mo de mémoire au premier démarrage.",
+    );
   }
 
   const { PGlite } = await import("@electric-sql/pglite");
   const dir = process.env.PGLITE_DIR ?? ".data/pglite";
   if (dir !== "memory://") mkdirSync(dir, { recursive: true });
-  const pg = new PGlite(dir);
-  await pg.exec(SCHEMA);
-  return async (text, params = []) => (await pg.query<Record<string, unknown>>(text, params)).rows;
+  const db = new PGlite(dir);
+  await db.exec(SCHEMA);
+  return async (text, params = []) => (await db.query<Record<string, unknown>>(text, params)).rows;
 }
 
 function connection(): Promise<Query> {

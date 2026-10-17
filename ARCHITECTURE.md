@@ -37,10 +37,10 @@ flowchart LR
         SC["Script memopipe:analyze<br/>(Bun)"]
         SC -->|"lit l'historique"| SP
     end
-    subgraph V["Vercel"]
+    subgraph V["Render"]
         HUB["Hub memopipe (Next.js)<br/>catalogue, tests pas à pas,<br/>contributions"]
         DEMO["App de démo<br/>tickets + console des permissions"]
-        DB[("Postgres (Neon)")]
+        DB[("Prisma Postgres")]
         HUB --- DB
         DEMO --- DB
     end
@@ -50,7 +50,7 @@ flowchart LR
 
 | Composant | Où | Rôle |
 |---|---|---|
-| **Hub memopipe** | Vercel : Next.js + Postgres Neon | Catalogue, publication, scénarios, test pas à pas, copie de travail, contribution, approbation |
+| **Hub memopipe** | Render : Next.js + Prisma Postgres | Catalogue, publication, scénarios, test pas à pas, copie de travail, contribution, approbation |
 | **App de démo « Nimbus IT »** | Même projet Next.js, sous `/demo` | Tickets et console des permissions. Les automatisations agissent dessus, et Screenpipe la capture quand Bob l'utilise. |
 | **Script `memopipe:analyze`** | PC de chaque membre, Bun | Lit Screenpipe en local, reconstruit les cas, demande la validation, envoie les scénarios validés |
 
@@ -82,7 +82,7 @@ memopipe-serv/
 │   ├── runner.ts                       # exécution pas à pas, comparaison attendu/obtenu
 │   ├── labels.ts                       # libellés affichés par la console (lus par le script)
 │   ├── data.ts                         # toutes les opérations : catalogue, tests, contributions, démo
-│   ├── db.ts, schema.ts                # Postgres : Neon en production, PGlite en local
+│   ├── db.ts, schema.ts                # Postgres : Prisma Postgres en production, PGlite en local
 │   └── seed.ts                         # données de départ (v1 d'Alice, tickets)
 └── tests/                              # bun test : moteur + parcours complet sur Postgres en mémoire
 ```
@@ -95,17 +95,17 @@ Le script `memopipe:analyze` n'est pas dans ce dépôt : il tourne sur le PC qui
 |---|---|
 | Langage | TypeScript partout |
 | Hub et app de démo | Next.js 16 (App Router, server actions) + React 19 ; CSS maison (`app/globals.css`) aux couleurs de screenpipe.com ; polices IBM Plex Sans, IBM Plex Mono et Crimson Text |
-| Base de données | Postgres Neon en production, ajoutée depuis le Marketplace Vercel (qui pose `DATABASE_URL`), avec le pilote `@neondatabase/serverless`. Sans `DATABASE_URL`, PGlite (Postgres embarqué) dans `.data/pglite`. Même SQL, écrit à la main dans `lib/schema.ts`, sans ORM. |
+| Base de données | Prisma Postgres en production, via le pilote standard `pg` et `DATABASE_URL` (n'importe quel Postgres convient : Neon, Render…). Sans `DATABASE_URL`, PGlite (Postgres embarqué) dans `.data/pglite`, en local uniquement : il dépasse 512 Mo de mémoire au premier démarrage. Même SQL, écrit à la main dans `lib/schema.ts`, sans ORM. |
 | Moteur (DSL, runner) | TypeScript pur dans `lib/`, sans aucun import de Next.js : il se teste seul avec `bun test` |
 | Diff des contributions | Paquet npm `diff` |
-| Hébergement | Vercel, racine du dépôt `memopipe-serv` |
+| Hébergement | Render (service web Node), racine du dépôt `memopipe-serv` : https://memopipe-serv.onrender.com |
 | Script local | Bun 1.3 ou plus (comme le starter), sans dépendance ; Bun charge `.env` tout seul |
 | Screenpipe | API REST locale `http://localhost:3030`, clé `SCREENPIPE_LOCAL_API_KEY` |
-| Paquets et tests | Bun partout (`bun install`, `bun test`) ; Vercel détecte Bun grâce à `bun.lock` |
+| Paquets et tests | Bun partout (`bun install`, `bun test`) ; Render détecte Bun grâce à `bun.lock` |
 | IA | Aucune dans le MVP. Les bonus réutilisent l'adaptateur compatible OpenAI du starter (`AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY`). |
 
 Variables d'environnement :
-- **Hub** (Vercel) : `DATABASE_URL`, `MEMOPIPE_TEAM_TOKEN`.
+- **Hub** (onglet Environment de Render) : `DATABASE_URL` (obligatoire), `MEMOPIPE_TEAM_TOKEN` (facultatif). Render fournit `PORT` tout seul.
 - **Script** (`.env` à la racine) : `SCREENPIPE_LOCAL_API_KEY`, `MEMOPIPE_HUB_URL`, `MEMOPIPE_TEAM_TOKEN`.
 
 ### Dépôt et répartition
@@ -205,7 +205,7 @@ Un scénario, c'est un ticket d'entrée et les accès attendus à la fin.
 ## 7. Le script local d'analyse Screenpipe
 
 ```
-$ bun run memopipe:analyze --hub https://memopipe-xxx.vercel.app --automation attribuer-acces
+$ bun run memopipe:analyze --hub https://memopipe-serv.onrender.com --automation attribuer-acces
 memopipe va lire ton historique Screenpipe, sur ce PC uniquement :
   période  : 24 dernières heures
   fenêtres : « Tickets Nimbus », « Console des permissions »
@@ -331,7 +331,7 @@ Tout le reste (tests pas à pas, « Tout tester », publier, modifier, proposer,
 
 | # | Bloc | Durée | Qui | État |
 |---|---|---|---|---|
-| 1 | Projet Next.js, Neon, « Je suis Alice / Bob », déploiement Vercel | 1 h | B | Fait, sauf le déploiement |
+| 1 | Projet Next.js, base Postgres, « Je suis Alice / Bob », déploiement | 1 h | B | Fait (Render + Prisma Postgres) |
 | 2 | App de démo : tickets, console, données de départ, reset | 2 h | B | Fait |
 | 3 | Relancer Screenpipe, vérifier la capture, puis Bob traite T-1175 et T-1182 dans l'app (avec `--save`) | 45 min | A, dès la fin du bloc 2 | À faire |
 | 4 | DSL : parser, expressions, compilation en instructions | 1 h 30 | A | Fait (dans `memopipe-serv`) |
@@ -382,4 +382,4 @@ Si la capture Screenpipe ne marche pas le jour J, le script rejoue les fixtures 
 
 1. **Screenpipe ne capture toujours pas l'écran** (`/health` : `frame_status: not_started`, `ui_recorder.running: false`). Il a coupé la capture quand le disque est passé sous 5 Gio, et ne l'a pas relancée. Il faut le quitter et le relancer, puis vérifier `/health`.
 2. **Le titre de la page arrive dans `window_name`**, et le texte « GitHub : Lecture seule » dans les résultats `accessibility`. À tester dès que la console de démo est en ligne.
-3. **Le déploiement Vercel + Neon fonctionne.** Plan B : `next dev` sur un seul PC, avec Alice et Bob comme deux identités.
+3. **Le déploiement Render + Prisma Postgres répond.** Plan B : `next dev` sur un seul PC, avec Alice et Bob comme deux identités.

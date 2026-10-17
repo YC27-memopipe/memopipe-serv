@@ -20,10 +20,10 @@ bun run test       # moteur + parcours complet sur un Postgres en mémoire
 bun run build      # compilation de production (vérifie aussi les types)
 ```
 
-## Déployer sur Vercel
+## Déployer sur Render
 
-1. Importer le dépôt dans Vercel (framework : Next.js, racine du dépôt).
-2. Ajouter Neon depuis l'onglet Storage (Marketplace) : `DATABASE_URL` est posé automatiquement. Les tables sont créées au premier appel.
+1. Créer un service web à partir du dépôt (runtime Node). Build Command : `bun install && bun run build`. Start Command : `bun run start`. Render fournit `PORT` tout seul.
+2. Dans l'onglet Environment, définir `DATABASE_URL` avec la chaîne de connexion d'une base Postgres (Prisma Postgres, Neon ou Render). Les tables et les données de démo sont créées au premier appel. Sans cette variable, le hub refuse de démarrer : PGlite, le Postgres embarqué prévu pour le local, dépasse les 512 Mo de mémoire de l'offre gratuite.
 3. Optionnel : définir `MEMOPIPE_TEAM_TOKEN`. Le script `memopipe:analyze` devra alors l'envoyer dans `Authorization: Bearer <jeton>`.
 
 ## Les écrans
