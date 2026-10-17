@@ -25,14 +25,18 @@ export async function POST(request: Request) {
   } catch {
     return Response.json({ error: "Le corps doit être du JSON." }, { status: 400 });
   }
-  const slug = typeof body.automation === "string" ? body.automation : "";
+  if (!body || typeof body !== "object" || Array.isArray(body)) return Response.json({ error: "Le corps doit être un objet JSON." }, { status: 400 });
+  // Accept CANARY Local's envelope as well as the existing flat server format.
+  const canary = typeof body.automation_id === "string";
+  const slug = typeof body.automation === "string" ? body.automation : canary ? body.automation_id as string : "";
   if (!slug) return Response.json({ error: "« automation » (le slug de l'automatisation) est obligatoire." }, { status: 400 });
-  const addedBy = typeof body.added_by === "string" && isUser(body.added_by) ? body.added_by : "bob";
+  const author = typeof body.author === "string" ? body.author.toLowerCase() : body.added_by;
+  const addedBy = typeof author === "string" && isUser(author) ? author : "bob";
 
   try {
-    const scenario = await addScenario(slug, body, addedBy);
+    const scenario = await addScenario(slug, canary ? body.scenario : body, addedBy);
     const url = new URL(`/a/${slug}#scenarios`, request.url).toString();
-    return Response.json({ id: scenario.id, automation: slug, title: scenario.title, url }, { status: 201 });
+    return Response.json({ id: canary ? String(scenario.id) : scenario.id, automation: slug, title: scenario.title, url }, { status: 201 });
   } catch (e) {
     if (e instanceof UserError) return Response.json({ error: e.message }, { status: 400 });
     throw e;

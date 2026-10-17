@@ -8,3 +8,27 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 .vercel
+
+# Private captures, generated archives and temporary local files
+local-data/
+captures/
+recordings/
+screenshots/
+*.tgz
+*.tar
+*.tar.gz
+*.zip
+*.pem
+*.key
+*.p12
+*.pfx
+.DS_Store
+.cache/
+tmp/
+temp/
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*~

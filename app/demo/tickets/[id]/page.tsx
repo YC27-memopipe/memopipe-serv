@@ -29,6 +29,7 @@ export default async function TicketPage({ params }: Props) {
         <section className="stack">
           {/* Une ligne = une seule chaîne de texte, pour que Screenpipe la capture d'un bloc. */}
           <div className="card facts">
+            <p>{`Type : ${t.type}`}</p>
             <p>{`Statut : ${TICKET_STATUS[t.status]}`}</p>
             <p>{`Demandeur : ${r.name}`}</p>
             <p>{`Email : ${r.email}`}</p>
@@ -43,8 +44,8 @@ export default async function TicketPage({ params }: Props) {
             <div className="stack">
               {t.comments.map((c, i) => (
                 <div key={i}>
-                  <p style={{ margin: 0 }}>{`${c.author} : ${c.text}`}</p>
-                  <p className="tiny muted" style={{ margin: 0 }}>{frDateTime(c.at)}</p>
+                  <p style={{ margin: 0 }}>{`Commentaire : ${c.text}`}</p>
+                  <p className="tiny muted" style={{ margin: 0 }}>{`${c.author} · ${frDateTime(c.at)}`}</p>
                 </div>
               ))}
             </div>

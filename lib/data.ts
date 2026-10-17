@@ -46,7 +46,12 @@ const flags = globalThis as unknown as { __memopipeSeed?: Promise<void> };
 async function init() {
   flags.__memopipeSeed ??= (async () => {
     const row = await q1<{ n: number }>("select ((select count(*) from automations) + (select count(*) from tickets))::int as n");
-    if (!row || Number(row.n) === 0) await reset("all");
+    if (!row || Number(row.n) === 0) {
+      // Initial seed only: startup must never truncate existing application data.
+      for (const ticket of DEMO_TICKETS) await insertTicket(ticket);
+      const automation = await insertAutomation(ALICE_AUTOMATION);
+      await insertScenario(automation.id, ALICE_SCENARIO, "alice");
+    }
   })().catch((e) => {
     flags.__memopipeSeed = undefined;
     throw e;
