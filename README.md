@@ -1,110 +1,113 @@
-# memopipe — hub d'équipe
+# MemoPipe
 
-Une équipe partage ses automatisations. Avant d'en réutiliser une, chacun la teste sur les cas réels de son historique Screenpipe, voit le résultat de chaque étape, la corrige et propose sa correction. Le propriétaire approuve, et la nouvelle version profite à tout le monde.
+MemoPipe helps IT operations and support teams turn a teammate's procedure into a tested, reviewed procedure the team can reuse. It uses permissioned Screenpipe observations to build reference cases, measures where a shared procedure fails, and supports a human-reviewed correction before publishing a new version.
 
-## Découverte à partir de Screenpipe
+This repository contains the web hub, the fictional Nimbus IT demo application, and the hub's independent automation runner. The companion local Screenpipe agent and TypeScript engine live in [memopipe-local](https://github.com/YC27-memopipe/memopipe-local). The user interface is currently in French.
 
-L’interface est conçue pour des utilisateurs métier : **Catalogue → Mes recommandations → Essayer une situation → Adapter les règles → Faire valider**. Les procédures, cas de référence et modifications se renseignent avec des formulaires. Le code, les commandes et les réglages d’intégration restent dans la documentation technique. Les réinitialisations et le guidage de démonstration ne sont plus exposés dans l’application.
+## Example
 
-Nimbus est accessible sous `/nimbus/tickets`. Les anciennes adresses `/demo/*` redirigent vers `/nimbus/*`. Les imports synthétiques restent signalés comme **Données d’exemple** ; leurs citations ne sont pas présentées comme des captures réelles. Les droits de validation et les consentements sont conservés.
+Alice's new-hire procedure passes her permanent-employee case. Bob's contractor case needs GitHub read access, no production VPN, Slack guest access, and an expiry date. The original procedure produces **four differences** on that case. Bob can review the observations, test a proposed correction against the accepted cases, and send it to Alice for approval. A passing regression set is evidence about those cases, not proof of a universal access policy.
 
-Le catalogue propose **« Trouver une procédure pour moi »** (`/decouvrir`). Bob autorise une lecture bornée de son historique local, puis le hub rapproche les cas Nimbus retrouvés du code des procédures publiées, sans choisir d’automatisation au départ et sans utiliser l’historique d’Alice.
+**Nimbus IT is fictional.** Permission changes are real database writes in this demonstration app; they do not grant actual GitHub, VPN, or Slack access. Screenpipe can record a user's interaction with the app. Replayed fixtures are labeled as sample data.
 
-1. Définir `MEMOPIPE_TEAM_TOKEN` dans le hub.
-2. Dans `memopipe-local/.env`, définir `SCREENPIPE_LOCAL_API_KEY`, `CANARY_HUB_URL`, `CANARY_TEAM_TOKEN` (même secret) et `CANARY_AUTHOR=Bob`.
-3. Lancer `bun run canary:agent` sur le PC de Bob. Gmail n’est pas requis.
-4. Traiter des tickets dans `/nimbus/tickets` avec Screenpipe actif, enregistrer leurs permissions, puis ouvrir `/decouvrir` dans le hub en tant que Bob.
-5. Autoriser l’analyse Screenpipe, examiner les recommandations et confirmer les références à tester. Après un échec, examiner le contexte minimisé et consentir séparément à son envoi à OpenAI. Le modèle explique les différences et peut proposer du DSL ; le serveur valide et teste cette proposition.
-6. La copie est testée sur tous les cas validés, puis proposée à Alice. L’approbation publie une version commune de la même procédure.
+## What works
 
-Alternative terminal : `bun run canary:discover --since 24h` dans le dépôt local. `--fixtures fixtures/bob.json` rejoue une **démo fictive**, annoncée comme telle.
+- A versioned procedure catalogue, reference cases, comments, editable copies, and owner review.
+- Consent-scoped, time-bounded Screenpipe searches, accessibility normalization, OCR fallback, pagination, and evidence excerpts.
+- Discovery of Nimbus cases and deterministic matching against published procedure code.
+- Human acceptance of reference cases, isolated test tickets, and expected-versus-observed comparisons.
+- A configurable AI HTTP client for diagnosis and DSL proposals, with a separate context preview and consent.
+- Schema validation, sandboxed rehearsal, regression checks, and publication by a different owner.
 
-Le rapprochement est spécialisé Nimbus. Le diagnostic et la correction passent par une vraie API IA ; aucune explication par règles ne la remplace. Voir [ARCHITECTURE.md](ARCHITECTURE.md) pour les contrats, limites et commandes complètes.
+The hub has its **own** DSL runner and does not currently import `@canary/local`. The repositories connect through HTTP scenario and report contracts. They are separate implementations.
 
-Ce dépôt contient le hub (catalogue, tests pas à pas, copies de travail, contributions, versions), l'app de démo fictive « Nimbus IT » (tickets et console des permissions) et le moteur des automatisations. Le détail est dans [ARCHITECTURE.md](ARCHITECTURE.md).
+## Run locally
 
-## Lancer en local
-
-Prérequis : [Bun](https://bun.sh) 1.2 ou plus, Node.js 20.9 ou plus.
+Requirements: Bun 1.3 or newer and Node.js 20.9 or newer. Verified on macOS Apple Silicon with Bun 1.4.3 and Node.js 22.13.1.
 
 ```sh
-bun install
-bun run dev        # http://localhost:3000
+git clone https://github.com/YC27-memopipe/memopipe-serv.git
+cd memopipe-serv
+bun install --frozen-lockfile
+cp -n .env.example .env.local
 ```
 
-Sans `DATABASE_URL`, le hub utilise PGlite, un vrai Postgres embarqué stocké dans `.data/pglite`. Au premier lancement, il crée la v1 d'Alice, son scénario CDI et les tickets de démo.
+Set a private, nonempty `MEMOPIPE_TEAM_TOKEN` in `.env.local` before connecting the local agent; use the same value for `CANARY_TEAM_TOKEN`. Keep secrets out of Git, chat, screenshots, and recordings.
 
 ```sh
-bun run test       # moteur + parcours complet sur un Postgres en mémoire
-bun run build      # compilation de production (vérifie aussi les types)
-bun run check:workflow  # après build : vrai CLI + serveur HTTP + formulaires, fixtures et base en mémoire
+bun run dev --hostname 127.0.0.1 --port 3000
 ```
 
-## Déployer sur Render
+Open <http://127.0.0.1:3000>. With `DATABASE_URL` empty, PGlite stores data under `.data/pglite`. The schema and fictional seed are initialized on first access; startup does not reset existing data. Use a separate fresh store for a demo instead of deleting or resetting an existing database.
 
-1. Créer un service web à partir du dépôt (runtime Node). Build Command : `bun install && bun run build`. Start Command : `bun run start`. Render fournit `PORT` tout seul.
-2. Dans l'onglet Environment, définir `DATABASE_URL` avec la chaîne de connexion d'une base Postgres (Prisma Postgres, Neon ou Render). Les tables et les données de démo sont créées au premier appel. Sans cette variable, le hub refuse de démarrer : PGlite, le Postgres embarqué prévu pour le local, dépasse les 512 Mo de mémoire de l'offre gratuite.
-3. Optionnel : définir `MEMOPIPE_TEAM_TOKEN`. Le script `canary:analyze` devra alors l'envoyer dans `Authorization: Bearer <jeton>`.
-
-## Brancher le diagnostic OpenAI
-
-Ajouter dans `memopipe-serv/.env` puis redémarrer le hub :
-
-```dotenv
-OPENAI_API_KEY=
-AI_MODEL=
-AI_BASE_URL=https://api.openai.com/v1
-```
-
-La clé reste sur le serveur. `AI_MODEL` doit être un modèle de votre compte supportant Chat Completions et JSON Schema strict. Sans clé/modèle, l’écran explique que l’IA n’est pas configurée. La découverte Screenpipe, les tests et la modification manuelle fonctionnent.
-
-Sur un run en échec : **Examiner le contexte envoyé à l’IA** → cocher l’autorisation → **Demander le diagnostic IA** → examiner explication, hypothèses et diff → confirmer la revue → **Accepter dans une copie et tester tous les cas**. La copie reste éditable avant proposition à Alice.
-
-Les entrées/sorties sont versionnées. Les références inventées et actions non autorisées sont refusées. Les tests n’autorisent que les actions Nimbus sur le ticket et le demandeur dédiés au run ; Gmail est bloqué, même dans une branche inactive. Les anciens connecteurs Gmail restent présents dans l’agent local, hors de ce parcours.
-
-Le consentement, le fournisseur/modèle, les propositions acceptées, les sauvegardes, tests et décisions sont tracés. L’interface de revue affiche ce journal. Les identités par cookie restent celles d’une démonstration ; l’authentification de production et la politique de rétention restent à prévoir. Le masquage réduit les identifiants connus sans garantir l’anonymisation du texte libre.
-
-Le test `bun run check:workflow` utilise un **fournisseur IA simulé** via HTTP et une base mémoire. Il vérifie le parcours sans appeler OpenAI ni lire vos captures.
-
-## Les écrans
-
-| Adresse | Rôle |
-|---|---|
-| `/` | Catalogue de l'équipe |
-| `/a/<slug>` | Fiche : version courante, scénarios de test, « Tout tester », contributions, historique |
-| `/runs/<id>` | Test pas à pas : chaque clic exécute une ligne sur l'app de démo, puis compare attendu et obtenu |
-| `/d/<id>` | Copie de travail : éditeur, « Tout tester » (version de base contre copie), diff, « Proposer » |
-| `/c/<id>` | Contribution : raison, diff, résultats, discussion, décision du propriétaire |
-| `/contributions`, `/equipe` | Toutes les contributions ; membres, branchement Screenpipe, réinitialisation de la démo |
-| `/demo/tickets`, `/demo/console/<email>` | App de démo Nimbus IT, observée par Screenpipe |
-
-En haut à droite, « Je suis Alice / Bob / Chloé » remplace l'authentification pour le prototype. Alice est propriétaire de l'automatisation de démo.
-
-## API pour le script Screenpipe
+The local agent runs from the sibling repository on the computer with Screenpipe:
 
 ```sh
-# Automatisations disponibles
-curl https://<hub>/api/scenarios
-
-# Envoyer un scénario validé
-curl -X POST https://<hub>/api/scenarios \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $MEMOPIPE_TEAM_TOKEN" \
-  -d '{
-    "automation": "attribuer-acces",
-    "added_by": "bob",
-    "title": "Prestataire externe, mission de 3 mois",
-    "origin": "Screenpipe · Bob · T-1182",
-    "ticket": { "id": "T-1182", "type": "access_request",
-      "requester": { "name": "Inès Fabre", "email": "ines.fabre@presta.example",
-                     "contract": "prestataire", "team": "data", "end_date": "2027-01-15" } },
-    "expected": { "github": "read", "vpn-prod": "none", "slack": "guest",
-                  "expires_before": "2027-01-15", "ticket_status": "done" },
-    "evidence": [ { "frame_id": 51234, "quote": "GitHub : Lecture seule" } ]
-  }'
-
-# Remettre la démo à zéro ("demo" : tickets et accès ; "all" : tout, avec la v1 d'Alice)
-curl -X POST https://<hub>/api/demo/reset -d '{"scope":"all"}'
+cd ../memopipe-local
+bun install --frozen-lockfile
+cp -n .env.example .env
+# Privately configure SCREENPIPE_LOCAL_API_KEY, CANARY_HUB_URL,
+# CANARY_TEAM_TOKEN and CANARY_AUTHOR=Bob in .env.
+bun run canary:agent
 ```
 
-Toutes les données sont fictives. Prototype réalisé pendant le hackathon Screenpipe (42 Paris, octobre 2026).
+Screenpipe must be running locally. The agent does not retrieve a missing API key. Gmail is not needed for the Screenpipe discovery flow.
+
+## Configuration
+
+See [.env.example](.env.example). Keep private values server-side; never put them in `NEXT_PUBLIC_*` variables.
+
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | Optional locally; PostgreSQL connection string for a hosted hub. |
+| `PGLITE_DIR` | Local store directory, default `.data/pglite`; tests use `memory://`. |
+| `MEMOPIPE_TEAM_TOKEN` | Shared API token for the connected agent. Configure it even though not every hub route enforces it. |
+| `OPENAI_API_KEY` | Server-only provider key for live AI diagnosis. `AI_API_KEY` is a fallback. |
+| `AI_MODEL` | Required actual provider model identifier; there is no hard-coded model default. |
+| `AI_BASE_URL` | Defaults to `https://api.openai.com/v1`; provider must support Chat Completions and strict JSON Schema. |
+| `MEMOPIPE_AGENT_TIMEOUT_MS` | Queued action wait limit, default `60000`. |
+| `MEMOPIPE_DIST_DIR` | Next.js output directory, default `.next`. |
+
+The team's supplied model label is **GPT Luna**. This is a presentation label, not a verified API model identifier. This validation pass had no live provider key/model configured and made no paid AI calls. Set `AI_MODEL` to a real model available to your provider/account. Without AI configuration, the assistant is unavailable; deterministic tests, discovery, and manual editing remain available. AI and hosting providers may charge fees; cost depends on the chosen model and usage.
+
+## Pages
+
+| Route | Purpose |
+| --- | --- |
+| `/` and `/a/attribuer-acces` | Procedure catalogue and seeded example |
+| `/decouvrir` and `/decouvrir/<id>` | Consent, recommendations, evidence, and case acceptance |
+| `/runs/<id>` | Run results and AI diagnosis |
+| `/d/<id>` and `/c/<id>` | Editable copy and owner review |
+| `/a/new`, `/contributions`, `/equipe` | Procedure creation, contributions, and team status |
+| `/nimbus/tickets/T-1175`, `/nimbus/tickets/T-1182` | Fictional tickets to observe |
+| `/nimbus/console/<email>` | Fictional permission console |
+
+The names Alice, Bob, and Chloé are demo identities selected in a cookie, not production authentication. Nimbus permissions are simulated. Legacy Gmail handlers exist in the local agent, but the hub's test policy rejects Gmail actions; this project does not claim a validated Gmail integration.
+
+## Checks
+
+```sh
+bun test
+bun x tsc --noEmit
+MEMOPIPE_DIST_DIR=.next-check bun run build
+MEMOPIPE_DIST_DIR=.next-check bun run check:workflow
+```
+
+The workflow check runs the Next.js server, local CLI, in-memory database, and a **simulated HTTP AI provider**. It does not read Screenpipe history or call Gmail/OpenAI. On 18 October 2026, 35 hub tests and 107 local tests passed; type checks, production build, workflow check, and independent TypeScript package installation passed.
+
+## Prototype limits
+
+- Nimbus is a fictional app, not a connection to real access-management systems.
+- The observer recognizes Nimbus labels and screens; it is not a general-purpose workflow miner.
+- Matching measures structural overlap, not probability of success. AI diagnosis is separate from matching.
+- Demo identities are not organization accounts. The team token does not protect every web page.
+- Selected excerpts and saved contexts may contain private text. Minimization does not guarantee anonymization; retention, stronger access control, and per-agent identity need production work.
+- Concurrency and durable exactly-once mutation receipts are not production guarantees. The hub and local engine are separate implementations.
+- No external-person reproduction, live AI quality run, or fresh live Screenpipe-to-published-version run was established in this validation pass.
+- A destructive reset API exists for disposable demos. Do not use it against an existing or shared database.
+
+## Team
+
+SOK Vibol Arnaud · KARMENOVA Amina · SAIDI Lena · YEKENE Sofiane.
+
+The team delivery covers the hub/interface, local observation and runner, reviewed AI flow, and integration/demo validation. Individual task attribution was not independently established. The demo video is supplied separately by the team.
