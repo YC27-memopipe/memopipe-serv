@@ -1,9 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CompareTable, DslLine, ExpectedChips, Flash, OriginTag } from "@/components/ui";
+import { CompareTable, DslLine, EvidenceList, expectedText, Flash } from "@/components/ui";
 import { compile } from "@/lib/dsl";
 import { getRun, outcomeOf } from "@/lib/data";
-import { CONTRACTS, frDate } from "@/lib/labels";
 import { finishRunAction, rerunAction, stepRunAction } from "../../actions";
 
 type Props = {
@@ -31,107 +30,80 @@ export default async function RunPage({ params, searchParams }: Props) {
   const outcome = state.done ? outcomeOf(run) : null;
   const draftMatch = /^copie #(\d+)$/.exec(run.source);
   const backHref = draftMatch ? `/d/${draftMatch[1]}` : `/a/${automation.slug}`;
-  const requester = scenario?.ticket.requester;
   const consoleHref = `/demo/console/${encodeURIComponent(run.test_email)}`;
+  const pct = total ? Math.round((state.steps.length / total) * 100) : 0;
 
   return (
     <>
       <Link className="back" href={backHref}>← {draftMatch ? "Copie de travail" : automation.title}</Link>
-      <p className="eyebrow">
-        <span>Test pas à pas</span>
-        <span>{run.source}</span>
-        <span>{automation.title}</span>
-      </p>
-      <h1>{scenario?.title ?? "Scénario"}</h1>
-      <div className="row" style={{ marginBottom: 24 }}>
-        {scenario && <OriginTag origin={scenario.origin} />}
-        <a className="tag" href={`/demo/tickets/${run.test_ticket}`} target="_blank" rel="noreferrer">Ticket de test {run.test_ticket} ↗</a>
-        {requester && (
-          <span className="tag">
-            {requester.name} · {CONTRACTS[requester.contract] ?? requester.contract}
-            {requester.end_date ? ` · fin le ${frDate(requester.end_date)}` : ""}
-          </span>
-        )}
+      <div className="head">
+        <h1>{scenario?.title ?? "Scénario"}</h1>
+        <p className="meta">
+          {run.source} · sur une copie isolée du ticket,{" "}
+          <a href={`/demo/tickets/${run.test_ticket}`} target="_blank" rel="noreferrer">{run.test_ticket} ↗</a>
+        </p>
       </div>
 
       <Flash error={typeof sp.error === "string" ? sp.error : undefined} />
 
-      <div className="split" style={{ marginTop: 16 }}>
-        <section>
-          <p className="label" style={{ marginBottom: 8 }}>L'automatisation, exécutée telle quelle sur l'app de démo</p>
-          <pre className="code">
-            {lines.map((text, i) => {
-              const n = i + 1;
-              const res = byLine.get(n);
-              const isInstruction = instructionLines.has(n);
-              let cls = "";
-              let mark = "";
-              if (res) { cls = res.ok ? "okl" : "kol"; mark = res.ok ? "✓" : "✗"; }
-              else if (n === currentLine) { cls = "cur"; mark = "▶"; }
-              else if (isInstruction && state.done) cls = "skip";
-              else if (!isInstruction) cls = "skip";
-              return (
-                <div key={n}>
-                  <div className={`ln ${cls}`}>
-                    <span className="num">{n}</span>
-                    <span className="mk">{mark}</span>
-                    <DslLine text={text} />
-                  </div>
-                  {res && <div className={`detail ${res.ok ? "" : "ko"}`}>→ {res.detail}</div>}
-                </div>
-              );
-            })}
-          </pre>
-        </section>
-
-        <section className="stack">
-          <div className="card frame on">
-            {!state.done ? (
-              <>
-                <p className="eyebrow"><span>En cours</span><span>{state.steps.length} / {total} étapes</span></p>
-                <p className="small" style={{ marginBottom: 14 }}>
-                  Chaque clic exécute la ligne marquée ▶ sur l'app de démo, pour de vrai, et affiche son résultat.
-                </p>
-                <div className="row">
-                  <form action={stepRunAction}>
-                    <input type="hidden" name="run" value={run.id} />
-                    <button className="btn" type="submit">Étape suivante</button>
-                  </form>
-                  <form action={finishRunAction}>
-                    <input type="hidden" name="run" value={run.id} />
-                    <button className="btn ghost" type="submit">Tout exécuter</button>
-                  </form>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className={`verdict ${outcome?.passed ? "ok" : "ko"}`}>
-                  <strong>
-                    {outcome?.error ? "Erreur" : outcome?.passed ? "Réussi" : `${outcome?.failures} écart${(outcome?.failures ?? 0) > 1 ? "s" : ""}`}
-                  </strong>
-                  <span className="mono small">{state.steps.length} étapes exécutées</span>
-                </div>
-                {state.error && <p className="notice ko" style={{ marginBottom: 14 }}>{state.error}</p>}
-                {run.result && run.result.length > 0 && <CompareTable rows={run.result} />}
-                <div className="row" style={{ marginTop: 16 }}>
-                  <a className="btn" href={consoleHref} target="_blank" rel="noreferrer">Voir dans la console des permissions ↗</a>
-                  <form action={rerunAction}>
-                    <input type="hidden" name="run" value={run.id} />
-                    <button className="btn ghost" type="submit">Relancer ce test</button>
-                  </form>
-                </div>
-              </>
-            )}
+      {!state.done ? (
+        <div className="progress">
+          <span className="small">{state.steps.length} / {total} étapes</span>
+          <div className="bar"><span style={{ width: `${pct}%` }} /></div>
+          <div className="row">
+            <form action={stepRunAction}>
+              <input type="hidden" name="run" value={run.id} />
+              <button className="btn" type="submit">Étape suivante</button>
+            </form>
+            <form action={finishRunAction}>
+              <input type="hidden" name="run" value={run.id} />
+              <button className="btn ghost" type="submit">Tout exécuter</button>
+            </form>
           </div>
+        </div>
+      ) : (
+        <div style={{ marginBottom: 18 }}>
+          <div className={`verdict ${outcome?.passed ? "ok" : "ko"}`}>
+            <strong>
+              {outcome?.error ? "Erreur" : outcome?.passed ? "Réussi" : `${outcome?.failures} écart${(outcome?.failures ?? 0) > 1 ? "s" : ""}`}
+            </strong>
+            <span className="row">
+              <a className="btn ghost sm" href={consoleHref} target="_blank" rel="noreferrer">Console ↗</a>
+              <form action={rerunAction}>
+                <input type="hidden" name="run" value={run.id} />
+                <button className="btn ghost sm" type="submit">Relancer</button>
+              </form>
+            </span>
+          </div>
+          {state.error && <p className="notice ko" style={{ marginBottom: 14 }}>{state.error}</p>}
+          {run.result && run.result.length > 0 && <CompareTable rows={run.result} />}
+        </div>
+      )}
 
-          {!state.done && scenario && (
-            <div className="card">
-              <p className="label" style={{ marginBottom: 10 }}>Attendu à la fin</p>
-              <ExpectedChips expected={scenario.expected} />
+      <pre className="code">
+        {lines.map((text, i) => {
+          const n = i + 1;
+          const res = byLine.get(n);
+          let cls = "";
+          let mark = "";
+          if (res) { cls = res.ok ? "okl" : "kol"; mark = res.ok ? "✓" : "✗"; }
+          else if (n === currentLine) { cls = "cur"; mark = "▶"; }
+          else if (!instructionLines.has(n) || state.done) cls = "skip";
+          return (
+            <div key={n}>
+              <div className={`ln ${cls}`}>
+                <span className="num">{n}</span>
+                <span className="mk">{mark}</span>
+                <DslLine text={text} />
+              </div>
+              {res && <div className={`detail ${res.ok ? "" : "ko"}`}>→ {res.detail}</div>}
             </div>
-          )}
-        </section>
-      </div>
+          );
+        })}
+      </pre>
+
+      {!state.done && scenario && <p className="plain" style={{ marginTop: 12 }}>Attendu à la fin : {expectedText(scenario.expected)}</p>}
+      {scenario && scenario.evidence.length > 0 && <div className="more"><EvidenceList evidence={scenario.evidence} /></div>}
     </>
   );
 }

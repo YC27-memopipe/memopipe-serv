@@ -17,12 +17,11 @@ export default async function NewAutomationPage() {
   const user = await currentUser();
   return (
     <>
-      <Link className="back" href="/">← Catalogue</Link>
-      <p className="eyebrow"><span>Nouvelle automatisation</span><span>propriétaire : {userName(user)}</span></p>
-      <h1>Publier une automatisation</h1>
-      <p className="lead">
-        Elle sera visible par toute l'équipe. Vous en restez propriétaire : c'est vous qui approuverez les contributions des autres.
-      </p>
+      <Link className="back" href="/">← Automatisations</Link>
+      <div className="head">
+        <h1>Nouvelle automatisation</h1>
+        <p className="meta">Visible par toute l'équipe. {userName(user)} en reste propriétaire et approuve les contributions.</p>
+      </div>
       <PublishForm template={TEMPLATE} />
     </>
   );

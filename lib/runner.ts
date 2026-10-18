@@ -1,7 +1,7 @@
 // Exécution pas à pas d'une automatisation compilée, et comparaison attendu / obtenu.
 import { evaluate, interpolate, truthy, type Program } from "./dsl";
 import { CONTRACTS, frDate, isLevel, isSystem, levelLabel, SYSTEM_IDS, SYSTEMS, systemLabel, TICKET_STATUS } from "./labels";
-import type { Actions, CompareRow, Expected, Grant, RunState, Ticket } from "./types";
+import type { Actions, CompareRow, Expected, Grant, MailSearch, MailSent, RunState, Ticket } from "./types";
 
 function skipJumps(program: Program, state: RunState): RunState {
   const ins = program.instructions;
@@ -31,7 +31,7 @@ function describe(value: unknown): string {
   return String(value);
 }
 
-function describeAction(action: keyof Actions, args: Record<string, string | null>): string {
+function describeAction(action: keyof Actions, args: Record<string, string | null>, result: unknown): string {
   switch (action) {
     case "iam.grant": {
       const system = args.system ?? "";
@@ -41,6 +41,16 @@ function describeAction(action: keyof Actions, args: Record<string, string | nul
     }
     case "tickets.comment": return `commentaire ajouté : « ${args.text} »`;
     case "tickets.close": return `ticket ${args.id} terminé`;
+    case "gmail.search": {
+      const r = result as MailSearch;
+      const found = `${r.count} email${r.count > 1 ? "s" : ""} trouvé${r.count > 1 ? "s" : ""} dans Gmail pour « ${args.query} »`;
+      return r.first ? `${found} · le plus récent : « ${r.first.subject} » de ${r.first.from}` : found;
+    }
+    case "gmail.send": {
+      const r = result as MailSent;
+      const redirected = r.redirected ? ` (boîte de test ; destinataire prévu : ${r.to})` : "";
+      return `email envoyé depuis Gmail à ${r.delivered_to}${redirected} : « ${args.subject} »`;
+    }
   }
 }
 
@@ -68,6 +78,7 @@ export async function step(program: Program, state: RunState, actions: Actions):
         const v = arg.kind === "template" ? interpolate(arg.value, vars) : evaluate(arg.expr, vars);
         args[name] = v === null || v === undefined || v === "" ? null : String(v);
       }
+      let result: unknown = null;
       if (inst.action === "iam.grant") {
         const system = args.system ?? "";
         if (!isSystem(system)) throw new Error(`système inconnu « ${system} » (systèmes : ${Object.keys(SYSTEMS).join(", ")})`);
@@ -76,10 +87,17 @@ export async function step(program: Program, state: RunState, actions: Actions):
         await actions["iam.grant"]({ user: args.user, system, level: args.level!, expires: args.expires });
       } else if (inst.action === "tickets.comment") {
         await actions["tickets.comment"]({ id: args.id ?? "", text: args.text ?? "" });
-      } else {
+      } else if (inst.action === "tickets.close") {
         await actions["tickets.close"]({ id: args.id ?? "" });
+      } else if (inst.action === "gmail.search") {
+        if (!args.query) throw new Error("gmail.search sans recherche : la valeur de « query » est vide");
+        result = await actions["gmail.search"]({ query: args.query, limit: args.limit });
+      } else {
+        for (const k of ["to", "subject", "body"]) if (!args[k]) throw new Error(`gmail.send : la valeur de « ${k} » est vide`);
+        result = await actions["gmail.send"]({ to: args.to!, subject: args.subject!, body: args.body! });
       }
-      return skipJumps(program, { ...state, vars, pc: state.pc + 1, steps: [...state.steps, record(true, describeAction(inst.action, args))] });
+      if (inst.into) vars[inst.into] = result;
+      return skipJumps(program, { ...state, vars, pc: state.pc + 1, steps: [...state.steps, record(true, describeAction(inst.action, args, result))] });
     }
     return skipJumps(program, { ...state, pc: inst.target });
   } catch (e) {

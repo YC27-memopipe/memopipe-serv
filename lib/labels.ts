@@ -1,5 +1,5 @@
 // Libellés partagés par le moteur, le hub et l'app de démo.
-// Le texte affiché par la console de démo est lu par le script memopipe:analyze : ne pas le changer sans lui.
+// Le texte affiché par la console de démo est lu par le script canary:analyze : ne pas le changer sans lui.
 
 export const SYSTEMS = {
   github: { label: "GitHub", levels: { none: "Aucun", read: "Lecture seule", write: "Écriture" } },
@@ -63,3 +63,6 @@ export function frDateTime(value: Date | string): string {
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
   return `${get("day")}/${get("month")}/${get("year")} à ${get("hour")}:${get("minute")}`;
 }
+
+/** « en tant qu'Alice », « en tant que Bob ». */
+export const enTantQue = (name: string) => (/^[aeiouyàâéèêîôû]/i.test(name) ? `en tant qu'${name}` : `en tant que ${name}`);

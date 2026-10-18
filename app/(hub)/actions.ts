@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import * as data from "@/lib/data";
-import { currentUser, USER_COOKIE } from "@/lib/session";
+import { currentUser, DEMO_COOKIE, SWITCH_COOKIE, USER_COOKIE } from "@/lib/session";
 
 function message(e: unknown) {
   if (e instanceof data.UserError) return e.message;
@@ -25,19 +25,49 @@ const num = (fd: FormData, key: string) => Number(fd.get(key));
 
 // ---------- Identité ----------
 
+async function switchUser(user: data.UserId) {
+  const jar = await cookies();
+  if ((await currentUser()) !== user) jar.set(SWITCH_COOKIE, `${user}.${Date.now()}`, { path: "/", sameSite: "lax", maxAge: 60 });
+  jar.set(USER_COOKIE, user, { path: "/", sameSite: "lax", maxAge: 60 * 60 * 24 * 30 });
+}
+
+/** Change d'utilisateur, puis va à `next` (chemin interne) ou revient sur la page d'origine. */
 export async function setUserAction(fd: FormData) {
   const user = str(fd, "user");
-  if (data.isUser(user)) {
-    (await cookies()).set(USER_COOKIE, user, { path: "/", sameSite: "lax", maxAge: 60 * 60 * 24 * 30 });
-  }
+  if (data.isUser(user)) await switchUser(user);
+  const next = str(fd, "next");
+  if (next.startsWith("/") && !next.startsWith("//")) redirect(next);
   let back = "/";
   const ref = (await headers()).get("referer");
   if (ref) {
     try {
-      back = new URL(ref).pathname;
+      const url = new URL(ref);
+      url.searchParams.delete("ok");
+      url.searchParams.delete("error");
+      back = url.pathname + url.search;
     } catch {}
   }
   redirect(back);
+}
+
+/** Avant de monter sur scène : tout repart de la v1 d'Alice, on joue Bob, le fil de la démo s'affiche. */
+export async function prepareDemoAction() {
+  try {
+    await data.reset("all");
+  } catch (e) {
+    fail("/equipe", e);
+  }
+  await switchUser("bob");
+  (await cookies()).set(DEMO_COOKIE, "1", { path: "/", sameSite: "lax", maxAge: 60 * 60 * 24 * 7 });
+  revalidatePath("/", "layout");
+  redirect("/a/attribuer-acces");
+}
+
+export async function toggleDemoAction(fd: FormData) {
+  const jar = await cookies();
+  if (str(fd, "on") === "1") jar.set(DEMO_COOKIE, "1", { path: "/", sameSite: "lax", maxAge: 60 * 60 * 24 * 7 });
+  else jar.delete(DEMO_COOKIE);
+  redirect("/equipe");
 }
 
 // ---------- Catalogue et scénarios ----------
@@ -107,6 +137,7 @@ export async function startRunAction(fd: FormData) {
   } catch (e) {
     fail(back, e);
   }
+  revalidatePath("/", "layout"); // le fil de la démo avance
   redirect(`/runs/${runId}`);
 }
 
@@ -157,6 +188,7 @@ export async function testVersionAction(fd: FormData) {
   } catch (e) {
     fail(`/a/${slug}`, e);
   }
+  revalidatePath("/", "layout");
   redirect(to(`/a/${slug}`, { batch }, "#resultats"));
 }
 
@@ -170,6 +202,7 @@ export async function createDraftAction(fd: FormData) {
   } catch (e) {
     fail(`/a/${slug}`, e);
   }
+  revalidatePath("/", "layout");
   redirect(`/d/${id}`);
 }
 

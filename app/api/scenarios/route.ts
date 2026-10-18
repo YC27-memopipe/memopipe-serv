@@ -3,7 +3,7 @@ import { tokenError } from "@/lib/token";
 
 export const dynamic = "force-dynamic";
 
-/** Le script memopipe:analyze vérifie ici que l'automatisation existe. */
+/** Le script canary:analyze vérifie ici que l'automatisation existe. */
 export async function GET(request: Request) {
   const denied = tokenError(request);
   if (denied) return denied;

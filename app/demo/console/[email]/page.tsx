@@ -9,7 +9,7 @@ type Props = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-// Le titre « Console des permissions · <email> » et le résumé en texte simple sont lus par memopipe:analyze.
+// Le titre « Console des permissions · <email> » et le résumé en texte simple sont lus par canary:analyze.
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const email = decodeURIComponent((await params).email);
   return { title: { absolute: `Console des permissions · ${email}` } };

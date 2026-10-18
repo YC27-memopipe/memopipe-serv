@@ -86,7 +86,25 @@ create table if not exists grants (
 create table if not exists console_saves (
   email text primary key,
   saved_at timestamptz not null
+);
+create table if not exists agent_jobs (
+  id serial primary key,
+  action text not null,
+  args jsonb not null,
+  status text not null default 'pending',
+  result jsonb,
+  error text,
+  created_at timestamptz not null default now(),
+  claimed_at timestamptz,
+  done_at timestamptz
+);
+create table if not exists agent_status (
+  id integer primary key,
+  label text not null,
+  last_seen timestamptz not null
 )
 `;
 
-export const TABLES = ["comments", "runs", "drafts", "scenarios", "versions", "automations", "grants", "console_saves", "tickets"];
+export const TABLES = [
+  "comments", "runs", "drafts", "scenarios", "versions", "automations", "grants", "console_saves", "tickets", "agent_jobs", "agent_status",
+];

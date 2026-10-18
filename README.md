@@ -24,7 +24,26 @@ bun run build      # compilation de production (vérifie aussi les types)
 
 1. Créer un service web à partir du dépôt (runtime Node). Build Command : `bun install && bun run build`. Start Command : `bun run start`. Render fournit `PORT` tout seul.
 2. Dans l'onglet Environment, définir `DATABASE_URL` avec la chaîne de connexion d'une base Postgres (Prisma Postgres, Neon ou Render). Les tables et les données de démo sont créées au premier appel. Sans cette variable, le hub refuse de démarrer : PGlite, le Postgres embarqué prévu pour le local, dépasse les 512 Mo de mémoire de l'offre gratuite.
-3. Optionnel : définir `MEMOPIPE_TEAM_TOKEN`. Le script `memopipe:analyze` devra alors l'envoyer dans `Authorization: Bearer <jeton>`.
+3. Optionnel : définir `MEMOPIPE_TEAM_TOKEN`. Le script `canary:analyze` devra alors l'envoyer dans `Authorization: Bearer <jeton>`.
+
+## Gmail réel : l'agent local
+
+Les actions `iam.*` et `tickets.*` agissent sur l'app de démo. Les actions `gmail.*` sont réelles et passent par Screenpipe :
+
+| Action | Ce qu'elle fait | Par où |
+|---|---|---|
+| `DO gmail.search query="…" limit="5" -> mails` | Cherche dans la boîte de réception ; `mails.count`, `mails.first.subject`, `mails.first.from`, `mails.first.snippet` | Connexion IMAP de Screenpipe |
+| `DO gmail.send to=… subject="…" body="…"` | Envoie un email depuis Gmail | Navigateur piloté par Screenpipe (rédaction préremplie, clic sur « Envoyer ») |
+
+Le hub (Render) ne peut pas joindre Screenpipe, qui tourne sur `localhost`. Il met donc ces actions en file d'attente (table `agent_jobs`). L'agent local du dépôt **memopipe-local**, lancé sur le PC qui a Screenpipe, vient les chercher, les exécute et renvoie le résultat. La page de test pas à pas l'affiche comme les autres étapes.
+
+Côté hub, deux routes, protégées par `MEMOPIPE_TEAM_TOKEN` :
+- `GET /api/agent/next` : l'agent signale sa présence et prend la plus ancienne action en attente (`{ job: { id, action, args } | null }`).
+- `POST /api/agent/jobs/<id>` : l'agent renvoie `{ ok: true, result }` ou `{ ok: false, error }`.
+
+Si aucun agent ne répond en 60 s, l'étape échoue avec un message qui dit de lancer l'agent. La barre du haut affiche « Gmail · agent en ligne » ou « hors ligne ».
+
+Pour lancer l'agent, voir le README de memopipe-local (`bun run canary:agent`). Il exige un jeton : définir `MEMOPIPE_TEAM_TOKEN` sur Render et la même valeur dans `CANARY_TEAM_TOKEN` côté local.
 
 ## Les écrans
 

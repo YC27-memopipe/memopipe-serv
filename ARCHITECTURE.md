@@ -34,7 +34,7 @@ Ce document ne garde que le strict nécessaire pour la démo du MVP. La version 
 flowchart LR
     subgraph PC["PC de Bob"]
         SP["Screenpipe<br/>localhost:3030"]
-        SC["Script memopipe:analyze<br/>(Bun)"]
+        SC["Script canary:analyze<br/>(Bun)"]
         SC -->|"lit l'historique"| SP
     end
     subgraph V["Render"]
@@ -52,7 +52,7 @@ flowchart LR
 |---|---|---|
 | **Hub memopipe** | Render : Next.js + Prisma Postgres | Catalogue, publication, scénarios, test pas à pas, copie de travail, contribution, approbation |
 | **App de démo « Nimbus IT »** | Même projet Next.js, sous `/demo` | Tickets et console des permissions. Les automatisations agissent dessus, et Screenpipe la capture quand Bob l'utilise. |
-| **Script `memopipe:analyze`** | PC de chaque membre, Bun | Lit Screenpipe en local, reconstruit les cas, demande la validation, envoie les scénarios validés |
+| **Script `canary:analyze`** | PC de chaque membre, Bun | Lit Screenpipe en local, reconstruit les cas, demande la validation, envoie les scénarios validés |
 
 Les captures Screenpipe ne quittent jamais le PC. Le script n'envoie que les scénarios validés par Bob : champs du ticket, accès attendus, et quelques citations avec leur ID de frame.
 
@@ -87,7 +87,7 @@ memopipe-serv/
 └── tests/                              # bun test : moteur + parcours complet sur Postgres en mémoire
 ```
 
-Le script `memopipe:analyze` n'est pas dans ce dépôt : il tourne sur le PC qui a l'historique Screenpipe, et ne parle au hub que par `POST /api/scenarios`.
+Le script `canary:analyze` n'est pas dans ce dépôt : il tourne sur le PC qui a l'historique Screenpipe, et ne parle au hub que par `POST /api/scenarios`.
 
 ### Stack
 
@@ -106,15 +106,15 @@ Le script `memopipe:analyze` n'est pas dans ce dépôt : il tourne sur le PC qui
 
 Variables d'environnement :
 - **Hub** (onglet Environment de Render) : `DATABASE_URL` (obligatoire), `MEMOPIPE_TEAM_TOKEN` (facultatif). Render fournit `PORT` tout seul.
-- **Script** (`.env` à la racine) : `SCREENPIPE_LOCAL_API_KEY`, `MEMOPIPE_HUB_URL`, `MEMOPIPE_TEAM_TOKEN`.
+- **Script et agent** (`.env` de memopipe-local) : `SCREENPIPE_LOCAL_API_KEY`, `CANARY_HUB_URL`, `CANARY_TEAM_TOKEN` (la valeur de `MEMOPIPE_TEAM_TOKEN`), `CANARY_TEST_INBOX` pour l'agent.
 
 ### Dépôt et répartition
 
-**Deux dépôts.** `memopipe-serv` contient le hub, l'app de démo et le moteur (le moteur est déjà écrit et testé). Le script `memopipe:analyze` vit à part, sur le PC qui a l'historique Screenpipe. Les deux ne partagent qu'un contrat : le format d'un scénario envoyé à `POST /api/scenarios` (section 6, type `ScenarioInput` dans `lib/types.ts`).
+**Deux dépôts.** `memopipe-serv` contient le hub, l'app de démo et le moteur (le moteur est déjà écrit et testé). Le script `canary:analyze` vit à part, sur le PC qui a l'historique Screenpipe. Les deux ne partagent qu'un contrat : le format d'un scénario envoyé à `POST /api/scenarios` (section 6, type `ScenarioInput` dans `lib/types.ts`).
 
 | Personne | Partie | Où |
 |---|---|---|
-| A | Script Screenpipe | Script `memopipe:analyze` et ses fixtures, mise en scène de l'historique (bloc 3) |
+| A | Script Screenpipe | Script `canary:analyze` et ses fixtures, mise en scène de l'historique (bloc 3) |
 | B | Site | `memopipe-serv` : `app/`, `components/`, `lib/` |
 
 Deux choses ne doivent plus changer une fois figées, parce que le script les lit avec des expressions régulières :
@@ -205,7 +205,7 @@ Un scénario, c'est un ticket d'entrée et les accès attendus à la fin.
 ## 7. Le script local d'analyse Screenpipe
 
 ```
-$ bun run memopipe:analyze --hub https://memopipe-serv.onrender.com --automation attribuer-acces
+$ bun run canary:analyze --hub https://memopipe-serv.onrender.com --automation attribuer-acces
 memopipe va lire ton historique Screenpipe, sur ce PC uniquement :
   période  : 24 dernières heures
   fenêtres : « Tickets Nimbus », « Console des permissions »
@@ -337,7 +337,7 @@ Tout le reste (tests pas à pas, « Tout tester », publier, modifier, proposer,
 | 4 | DSL : parser, expressions, compilation en instructions | 1 h 30 | A | Fait (dans `memopipe-serv`) |
 | 5 | Test pas à pas : runner et comparaison (A), page de test (B) | 2 h | A et B | Fait |
 | 6 | Catalogue, fiche, publication, scénario écrit à la main | 1 h | B | Fait |
-| 7 | Script `memopipe:analyze` | 2 h | A | À faire |
+| 7 | Script `canary:analyze` | 2 h | A | À faire |
 | 8 | Copie de travail, « Tout tester », contribution, diff, approbation, v2 | 1 h 30 | B (pages), A (« Tout tester ») | Fait |
 | 9 | Répétition de la démo, vidéo de secours | 45 min | A et B | À faire |
 
@@ -369,7 +369,7 @@ A = moteur et Screenpipe, B = site (section 3). Environ 12 h 30 de travail, soit
 |---|---|---|
 | 0:00 | Catalogue, en tant qu'Alice | « Alice a publié son automatisation, testée sur son cas : 1/1. » |
 | 0:10 | Passage en Bob | « Bob veut la réutiliser. Marchera-t-elle pour ses cas ? » |
-| 0:20 | Terminal : `memopipe:analyze` | Consentement, 2 tickets retrouvés dans le vrai historique Screenpipe de Bob ; on ouvre une frame ; Bob valide |
+| 0:20 | Terminal : `canary:analyze` | Consentement, 2 tickets retrouvés dans le vrai historique Screenpipe de Bob ; on ouvre une frame ; Bob valide |
 | 0:45 | Fiche, test pas à pas de T-1182 | Les accès apparaissent un par un : 4 écarts, dont le VPN de production. On ouvre la console. |
 | 1:10 | Copie de travail, `IF` ajouté, « Tout tester » | 3/3 : le cas d'Alice passe toujours |
 | 1:25 | « Proposer » | Diff, raison, tableau v1 contre copie |

@@ -75,6 +75,35 @@ export async function reset(scope: "demo" | "all") {
   }
 }
 
+/** Où en est l'histoire de la démo sur l'automatisation d'Alice : cas Screenpipe, test, contribution. */
+export async function demoProgress() {
+  await init();
+  const a = await q1<{ id: number; slug: string; owner: string }>("select id, slug, owner from automations where slug = $1", [ALICE_AUTOMATION.slug]);
+  if (!a) return null;
+  const [scenario, run, draft] = await Promise.all([
+    q1<{ id: number }>("select id from scenarios where automation_id = $1 and origin ilike '%screenpipe%' order by id desc limit 1", [a.id]),
+    q1<{ id: number }>(
+      `select r.id from runs r join scenarios s on s.id = r.scenario_id
+       where r.automation_id = $1 and s.origin ilike '%screenpipe%' and r.source not like 'copie%' order by r.id desc limit 1`,
+      [a.id],
+    ),
+    q1<{ id: number; status: DraftStatus; author: string }>(
+      "select id, status, author from drafts where automation_id = $1 order by (status = 'approved') desc, (status = 'proposed') desc, id desc limit 1",
+      [a.id],
+    ),
+  ]);
+  return { slug: a.slug, owner: a.owner, scenario: scenario?.id ?? null, run: run?.id ?? null, draft: draft ?? null };
+}
+
+/** Empreinte qui change dès qu'un scénario, une copie, un commentaire ou une version change. */
+export async function pulse() {
+  await init();
+  const row = await q1<{ v: string }>(`select concat_ws(':',
+    (select count(*) from scenarios), (select coalesce(max(id), 0) from scenarios), (select count(*) from versions),
+    (select coalesce(string_agg(id::text || status, ',' order by id), '') from drafts), (select count(*) from comments)) as v`);
+  return row?.v ?? "";
+}
+
 // ---------- Utilitaires ----------
 
 export function formatErrors(errors: DslError[]) {
@@ -151,7 +180,7 @@ export async function publishAutomation(input: { title: string; usage: string; d
 
 const STATUSES = ["open", "approved", "done"];
 
-/** Valide un scénario venant du formulaire ou du script memopipe:analyze. */
+/** Valide un scénario venant du formulaire ou du script canary:analyze. */
 export function parseScenario(value: unknown): ScenarioInput {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new UserError("Le scénario doit être un objet JSON.");
   const v = value as Record<string, unknown>;
@@ -250,7 +279,66 @@ async function markSaved(email: string) {
   await q("insert into console_saves (email, saved_at) values ($1, now()) on conflict (email) do update set saved_at = now()", [email]);
 }
 
+// ---------- Actions réelles, exécutées par l'agent local via Screenpipe ----------
+
+export type AgentJob = {
+  id: number; action: string; args: Record<string, unknown>; status: "pending" | "claimed" | "done" | "error" | "expired";
+  result: unknown; error: string | null; created_at: Date | string;
+};
+
+const AGENT_TIMEOUT_MS = Number(process.env.MEMOPIPE_AGENT_TIMEOUT_MS ?? 60_000);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Dépose l'action dans la file, attend que l'agent local l'exécute sur le PC, et renvoie son résultat. */
+async function viaAgent<T>(action: string, args: Record<string, unknown>): Promise<T> {
+  const job = (await q1<{ id: number }>("insert into agent_jobs (action, args) values ($1, $2::jsonb) returning id", [action, JSON.stringify(args)]))!;
+  const deadline = Date.now() + AGENT_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await sleep(600);
+    const j = await q1<AgentJob>("select * from agent_jobs where id = $1", [job.id]);
+    if (j?.status === "done") return j.result as T;
+    if (j?.status === "error") throw new Error(j.error ?? "erreur de l'agent local");
+  }
+  await q("update agent_jobs set status = 'expired' where id = $1 and status in ('pending', 'claimed')", [job.id]);
+  throw new Error(
+    `L'agent local n'a pas répondu en ${Math.round(AGENT_TIMEOUT_MS / 1000)} s. Lancez « bun run canary:agent » (dépôt memopipe-local) sur le PC qui a Screenpipe.`,
+  );
+}
+
+/** Appelé par l'agent : signale sa présence et prend la plus ancienne action en attente. */
+export async function claimNextJob(label: string) {
+  await init();
+  await q(
+    "insert into agent_status (id, label, last_seen) values (1, $1, now()) on conflict (id) do update set label = excluded.label, last_seen = now()",
+    [label.slice(0, 80)],
+  );
+  return q1<AgentJob>(
+    `update agent_jobs set status = 'claimed', claimed_at = now()
+     where id = (select id from agent_jobs where status = 'pending' order by id limit 1 for update skip locked)
+     returning *`,
+  );
+}
+
+/** Appelé par l'agent : renvoie le résultat (ou l'erreur) d'une action. */
+export async function completeJob(id: number, outcome: { ok: true; result: unknown } | { ok: false; error: string }) {
+  await init();
+  const r = outcome.ok
+    ? await q("update agent_jobs set status = 'done', result = $2::jsonb, done_at = now() where id = $1 and status = 'claimed' returning id", [id, JSON.stringify(outcome.result ?? null)])
+    : await q("update agent_jobs set status = 'error', error = $2, done_at = now() where id = $1 and status = 'claimed' returning id", [id, outcome.error.slice(0, 2000)]);
+  return r.length > 0;
+}
+
+export async function agentStatus() {
+  await init();
+  const s = await q1<{ label: string; last_seen: Date | string }>("select label, last_seen from agent_status where id = 1");
+  if (!s) return { online: false, label: null, lastSeen: null };
+  const age = Date.now() - new Date(s.last_seen).getTime();
+  return { online: age < 15_000, label: s.label, lastSeen: s.last_seen };
+}
+
 export const demoActions: Actions = {
+  "gmail.search": (args) => viaAgent("gmail.search", args),
+  "gmail.send": (args) => viaAgent("gmail.send", args),
   "iam.grant": async ({ user, system, level, expires }) => {
     await grant(user, system, level, expires ?? null);
     await markSaved(user);
@@ -382,7 +470,7 @@ export async function batchResults(automationId: number, batch: string) {
     "select r.*, s.title, s.origin from runs r join scenarios s on s.id = r.scenario_id where r.automation_id = $1 and r.batch = $2 order by r.id",
     [automationId, batch],
   );
-  return runs.map((r) => ({ title: r.title, origin: r.origin, outcome: outcomeOf(r), source: r.source }));
+  return runs.map((r) => ({ scenarioId: r.scenario_id, title: r.title, origin: r.origin, outcome: outcomeOf(r), source: r.source }));
 }
 
 // ---------- Copies de travail et contributions ----------

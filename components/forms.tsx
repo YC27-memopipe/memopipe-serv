@@ -24,9 +24,13 @@ export function PublishForm({ template }: { template: string }) {
             <b>Actions :</b> <span className="mono">iam.grant</span> (user, system, level, expires), <span className="mono">tickets.comment</span> (id, text),{" "}
             <span className="mono">tickets.close</span> (id).
             <br />
+            <b>Gmail réel, via Screenpipe :</b> <span className="mono">gmail.search</span> (query, limit) <span className="mono">-&gt; mails</span>,{" "}
+            <span className="mono">gmail.send</span> (to, subject, body).
+            <br />
             <b>Systèmes :</b> github (none, read, write), vpn-prod (none, access), slack (none, guest, member).
             <br />
-            <span className="mono">ticket</span> désigne le ticket traité.
+            <span className="mono">ticket</span> désigne le ticket traité. Conditions : <span className="mono">==</span>, <span className="mono">!=</span>,{" "}
+            <span className="mono">contains</span>, <span className="mono">not</span>, <span className="mono">and</span>, <span className="mono">or</span>.
           </div>
         </div>
         <label className="field">
@@ -51,7 +55,7 @@ export function ScenarioForm({ slug, example }: { slug: string; example: string 
         <textarea className="json" name="json" defaultValue={state.values?.json ?? example} spellCheck={false} />
       </label>
       <div className="row between">
-        <span className="tiny muted">Les scénarios issus de Screenpipe arrivent tout seuls, envoyés par le script memopipe:analyze.</span>
+        <span className="tiny muted">Les scénarios issus de Screenpipe arrivent tout seuls, envoyés par le script canary:analyze.</span>
         <button className="btn sm" type="submit" disabled={pending}>{pending ? "Ajout…" : "Ajouter le scénario"}</button>
       </div>
     </form>

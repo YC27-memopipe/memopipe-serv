@@ -23,20 +23,16 @@ export function Avatar({ user, name }: { user: string; name: string }) {
   return <span className={`avatar ${user}`}>{name.slice(0, 1)}</span>;
 }
 
-export function OriginTag({ origin }: { origin: string }) {
-  const fromScreenpipe = /screenpipe/i.test(origin);
-  return <span className={`tag ${fromScreenpipe ? "sp" : ""}`}>{fromScreenpipe ? "◉ " : ""}{origin}</span>;
-}
 
-/** Résumé lisible des attendus d'un scénario. */
-export function ExpectedChips({ expected }: { expected: Expected }) {
-  const chips: string[] = [];
-  for (const [key, value] of Object.entries(expected)) {
-    if (key === "expires_before") chips.push(`Expiration ≤ ${frDate(String(value))}`);
-    else if (key === "ticket_status") chips.push(`Ticket ${TICKET_STATUS[String(value)]?.toLowerCase() ?? value}`);
-    else chips.push(`${systemLabel(key)} : ${levelLabel(key, String(value))}`);
-  }
-  return <div className="chips">{chips.map((c) => <span key={c} className="tag">{c}</span>)}</div>;
+/** Les attendus d'un scénario en une ligne de texte. */
+export function expectedText(expected: Expected): string {
+  return Object.entries(expected)
+    .map(([key, value]) => {
+      if (key === "expires_before") return `expire avant le ${frDate(String(value))}`;
+      if (key === "ticket_status") return `ticket ${TICKET_STATUS[String(value)]?.toLowerCase() ?? value}`;
+      return `${systemLabel(key)} ${levelLabel(key, String(value)).toLowerCase()}`;
+    })
+    .join(" · ");
 }
 
 export function EvidenceList({ evidence }: { evidence: Evidence[] }) {
@@ -157,11 +153,3 @@ export function DiffView({ before, after }: { before: string; after: string }) {
   );
 }
 
-export function SectionHead({ title, children }: { title: string; children?: ReactNode }) {
-  return (
-    <div className="section-head">
-      <h2>{title}</h2>
-      {children}
-    </div>
-  );
-}

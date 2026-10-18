@@ -32,8 +32,19 @@ function memory() {
     "tickets.close": async () => {
       ticket.status = "done";
     },
+    "gmail.search": async ({ query }) => {
+      const items = query.includes("Fabre")
+        ? [{ id: 7, from: "karim.haddad@nimbus.example", to: "it@nimbus.example", subject: "Accès pour Inès Fabre", date: "2026-10-16", snippet: "Prestataire, pas de VPN prod." }]
+        : [];
+      return { count: items.length, first: items[0] ?? null, items };
+    },
+    "gmail.send": async ({ to }) => {
+      sent.push(to);
+      return { to, delivered_to: to, redirected: false };
+    },
   };
-  return { grants, ticket, actions };
+  const sent: string[] = [];
+  return { grants, ticket, actions, sent };
 }
 
 function program(dsl: string): Program {
@@ -109,6 +120,33 @@ describe("exécution et comparaison", () => {
       "commentaire ajouté : « Accès standards attribués. »",
       "ticket T-1 terminé",
     ]);
+  });
+
+  test("gmail.search range son résultat avec -> et contains lit le contenu de l'email", async () => {
+    const m = memory();
+    const p = program(`SET p = ticket.requester
+DO gmail.search query="{{p.name}}" limit="3" -> mails
+IF mails.count == 0
+  DO tickets.comment id=ticket.id text="aucun email"
+ELSE
+  IF mails.first.snippet contains "VPN PROD"
+    DO tickets.comment id=ticket.id text="consigne du manager : {{mails.first.subject}}"
+  END
+END
+DO gmail.send to=p.email subject="Vos accès" body="Bonjour {{p.name}}" -> envoi`);
+    const end = await runToEnd(p, start(p, m.ticket), m.actions);
+    expect(end.error).toBeNull();
+    expect(m.ticket.comments.map((c) => c.text)).toEqual(["consigne du manager : Accès pour Inès Fabre"]);
+    expect(m.sent).toEqual(["ines.fabre@presta.example"]);
+    expect(end.steps[1].detail).toContain("1 email trouvé dans Gmail");
+    expect(end.steps.at(-1)?.detail).toBe("email envoyé depuis Gmail à ines.fabre@presta.example : « Vos accès »");
+    expect((end.vars.envoi as { delivered_to: string }).delivered_to).toBe("ines.fabre@presta.example");
+  });
+
+  test("gmail.send exige un destinataire, un sujet et un corps", () => {
+    const c = compile(`DO gmail.send to="a@b.c" subject="x"`);
+    expect(c.ok).toBe(false);
+    if (!c.ok) expect(c.errors[0].message).toContain("body");
   });
 
   test("une valeur vide pour user arrête le test avec un message clair", async () => {

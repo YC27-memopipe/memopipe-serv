@@ -4,23 +4,26 @@
 import { isLevel, isSystem, SYSTEMS } from "./labels";
 import type { ActionName } from "./types";
 
-export const ACTIONS: Record<ActionName, { required: string[]; optional: string[] }> = {
+export const ACTIONS: Record<ActionName, { required: string[]; optional: string[]; real?: boolean }> = {
   "iam.grant": { required: ["user", "system", "level"], optional: ["expires"] },
   "tickets.comment": { required: ["id", "text"], optional: [] },
   "tickets.close": { required: ["id"], optional: [] },
+  // Actions réelles, exécutées sur le PC par l'agent local, via Screenpipe.
+  "gmail.search": { required: ["query"], optional: ["limit"], real: true },
+  "gmail.send": { required: ["to", "subject", "body"], optional: [], real: true },
 };
 
 export type Expr =
   | { k: "lit"; v: string | number | boolean | null }
   | { k: "path"; p: string[] }
   | { k: "not"; e: Expr }
-  | { k: "and" | "or" | "eq" | "ne"; a: Expr; b: Expr };
+  | { k: "and" | "or" | "eq" | "ne" | "contains"; a: Expr; b: Expr };
 
 export type Arg = { kind: "template"; value: string } | { kind: "expr"; expr: Expr };
 
 export type Instruction =
   | { op: "set"; line: number; depth: number; name: string; expr: Expr }
-  | { op: "do"; line: number; depth: number; action: ActionName; args: Record<string, Arg> }
+  | { op: "do"; line: number; depth: number; action: ActionName; args: Record<string, Arg>; into?: string }
   | { op: "if"; line: number; depth: number; cond: Expr; target: number }
   | { op: "jump"; line: number; depth: number; target: number };
 
@@ -84,7 +87,7 @@ export function parseExpr(src: string): Expr {
       if (t.v === "true") return { k: "lit", v: true };
       if (t.v === "false") return { k: "lit", v: false };
       if (t.v === "null") return { k: "lit", v: null };
-      if (["and", "or", "not"].includes(t.v)) throw new SyntaxErr(`« ${t.v} » mal placé`);
+      if (["and", "or", "not", "contains"].includes(t.v)) throw new SyntaxErr(`« ${t.v} » mal placé`);
       return { k: "path", p: t.v.split(".") };
     }
     throw new SyntaxErr(`« ${t.v} » inattendu`);
@@ -95,6 +98,10 @@ export function parseExpr(src: string): Expr {
     if (t?.t === "op" && (t.v === "==" || t.v === "!=")) {
       i++;
       return { k: t.v === "==" ? "eq" : "ne", a, b: primary() };
+    }
+    if (isWord("contains")) {
+      i++;
+      return { k: "contains", a, b: primary() };
     }
     return a;
   };
@@ -147,6 +154,12 @@ export function evaluate(e: Expr, vars: Record<string, unknown>): unknown {
     case "or": return truthy(evaluate(e.a, vars)) || truthy(evaluate(e.b, vars));
     case "eq": return same(evaluate(e.a, vars), evaluate(e.b, vars));
     case "ne": return !same(evaluate(e.a, vars), evaluate(e.b, vars));
+    case "contains": {
+      const hay = evaluate(e.a, vars);
+      const needle = evaluate(e.b, vars);
+      if (hay == null || needle == null) return false;
+      return String(hay).toLowerCase().includes(String(needle).toLowerCase());
+    }
   }
 }
 
@@ -175,7 +188,12 @@ function parseStringLiteral(src: string): string {
 
 const ARG = /([A-Za-z_][A-Za-z0-9_]*)=("(?:[^"\\]|\\.)*"|[^\s"]+)/y;
 
-function parseDo(rest: string, line: number, depth: number): Instruction {
+function parseDo(full: string, line: number, depth: number): Instruction {
+  // « -> nom » en fin de ligne range le résultat de l'action dans une variable.
+  const arrow = /\s*->\s*([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(full);
+  const rest = arrow ? full.slice(0, arrow.index) : full;
+  const into = arrow?.[1];
+  if (into === "ticket") throw new SyntaxErr("« ticket » est réservé au ticket du test");
   const head = /^([A-Za-z]+\.[A-Za-z_]+)(?:\s+|$)/.exec(rest);
   if (!head) throw new SyntaxErr("DO attend une action, par exemple « DO iam.grant … »");
   const action = head[1] as ActionName;
@@ -214,7 +232,7 @@ function parseDo(rest: string, line: number, depth: number): Instruction {
       throw new SyntaxErr(`niveau « ${l} » impossible pour ${s} (niveaux : ${Object.keys(SYSTEMS[s as keyof typeof SYSTEMS].levels).join(", ")})`);
     }
   }
-  return { op: "do", line, depth, action, args };
+  return { op: "do", line, depth, action, args, ...(into ? { into } : {}) };
 }
 
 export function compile(dsl: string): CompileResult {

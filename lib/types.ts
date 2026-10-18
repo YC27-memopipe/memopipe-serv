@@ -1,4 +1,4 @@
-// Contrats entre le moteur (dsl.ts, runner.ts), le hub et le script memopipe:analyze.
+// Contrats entre le moteur (dsl.ts, runner.ts), le hub et le script canary:analyze.
 import type { SystemId } from "./labels";
 
 export type Requester = {
@@ -30,7 +30,7 @@ export type Expected = Partial<Record<SystemId, string>> & {
 
 export type Evidence = { frame_id?: number; quote: string };
 
-/** Ce que le script memopipe:analyze envoie à POST /api/scenarios (le champ automation désigne le slug). */
+/** Ce que le script canary:analyze envoie à POST /api/scenarios (le champ automation désigne le slug). */
 export type ScenarioInput = {
   title: string;
   origin: string;
@@ -39,11 +39,21 @@ export type ScenarioInput = {
   evidence?: Evidence[];
 };
 
-/** Actions que le moteur peut appeler. Le hub les implémente sur l'app de démo. */
+/** Un email Gmail lu par Screenpipe (connexion IMAP). */
+export type Mail = { id: number; from: string; to: string; subject: string; date: string; snippet?: string };
+export type MailSearch = { count: number; first: Mail | null; items: Mail[] };
+export type MailSent = { to: string; delivered_to: string; redirected: boolean };
+
+/**
+ * Actions que le moteur peut appeler. Le hub implémente iam.* et tickets.* sur l'app de démo ;
+ * les actions gmail.* sont réelles : l'agent local les exécute sur le PC, via Screenpipe.
+ */
 export type Actions = {
   "iam.grant": (args: { user: string; system: string; level: string; expires?: string | null }) => Promise<void>;
   "tickets.comment": (args: { id: string; text: string }) => Promise<void>;
   "tickets.close": (args: { id: string }) => Promise<void>;
+  "gmail.search": (args: { query: string; limit?: string | null }) => Promise<MailSearch>;
+  "gmail.send": (args: { to: string; subject: string; body: string }) => Promise<MailSent>;
 };
 export type ActionName = keyof Actions;
 

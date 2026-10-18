@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { Avatar, Flash, SectionHead } from "@/components/ui";
-import { listAutomations, listContributions, USERS } from "@/lib/data";
-import { currentUser, hubOrigin } from "@/lib/session";
-import { resetAction } from "../actions";
+import { Avatar, Flash } from "@/components/ui";
+import { agentStatus, listAutomations, listContributions, USERS } from "@/lib/data";
+import { frDateTime } from "@/lib/labels";
+import { currentUser, demoMode, hubOrigin } from "@/lib/session";
+import { prepareDemoAction, resetAction, toggleDemoAction } from "../actions";
 
 export const metadata = { title: "Équipe" };
 
@@ -21,105 +22,141 @@ const EXAMPLE = `{
   "evidence": [ { "frame_id": 51234, "quote": "GitHub : Lecture seule" } ]
 }`;
 
+function Code({ lines }: { lines: string[] }) {
+  return (
+    <pre className="code" style={{ padding: "12px 16px", fontSize: 12 }}>
+      {lines.map((l, i) => <div className="ln" key={i}><span className="txt">{l}</span></div>)}
+    </pre>
+  );
+}
+
 export default async function TeamPage({ searchParams }: Props) {
   const sp = await searchParams;
-  const [user, origin, automations, contributions] = await Promise.all([currentUser(), hubOrigin(), listAutomations(), listContributions()]);
+  const [user, origin, automations, contributions, agent, demo] = await Promise.all([
+    currentUser(), hubOrigin(), listAutomations(), listContributions(), agentStatus(), demoMode(),
+  ]);
   const tokenRequired = !!process.env.MEMOPIPE_TEAM_TOKEN;
+  const token = tokenRequired ? "<MEMOPIPE_TEAM_TOKEN du hub>" : "(pas de jeton exigé ici)";
 
   return (
     <>
-      <p className="eyebrow"><span>Équipe</span><span>Nimbus IT</span></p>
-      <h1>L'équipe</h1>
-      <p className="lead">
-        Pour le prototype, pas de compte : choisissez qui vous êtes en haut à droite. Chacun branche son propre Screenpipe ;
-        les captures restent sur son PC, seuls les scénarios validés arrivent ici.
-      </p>
+      <div className="head">
+        <h1>Équipe</h1>
+        <p className="meta">Pas de compte pour le prototype : choisissez qui vous êtes en haut à droite.</p>
+      </div>
       <Flash error={typeof sp.error === "string" ? sp.error : undefined} ok={typeof sp.ok === "string" ? sp.ok : undefined} />
 
-      <div className="grid" style={{ marginTop: 8 }}>
+      <div className="list">
         {Object.entries(USERS).map(([id, name]) => {
-          const owned = automations.filter((a) => a.owner === id);
+          const owned = automations.filter((a) => a.owner === id).length;
           const authored = contributions.filter((c) => c.author === id);
+          const approved = authored.filter((c) => c.status === "approved").length;
           return (
-            <div key={id} className={`card ${id === user ? "frame on" : ""}`}>
+            <div key={id} className="item">
               <div className="row">
                 <Avatar user={id} name={name} />
                 <div>
-                  <h3>{name}{id === user ? " (vous)" : ""}</h3>
-                  <p className="tiny muted">{owned.length ? `Propriétaire de ${owned.length} automatisation${owned.length > 1 ? "s" : ""}` : "Membre"}</p>
+                  <div className="t">{name}{id === user ? " (vous)" : ""}</div>
+                  <div className="s">
+                    {owned ? `propriétaire de ${owned} automatisation${owned > 1 ? "s" : ""} · ` : ""}
+                    {authored.length} contribution{authored.length > 1 ? "s" : ""}, {approved} approuvée{approved > 1 ? "s" : ""}
+                  </div>
                 </div>
               </div>
-              <p className="small muted" style={{ marginTop: 12 }}>
-                {authored.length} contribution{authored.length > 1 ? "s" : ""} · {authored.filter((c) => c.status === "approved").length} approuvée
-                {authored.filter((c) => c.status === "approved").length > 1 ? "s" : ""}
-              </p>
             </div>
           );
         })}
       </div>
 
-      <section className="section split even">
-        <div>
-          <SectionHead title="Brancher Screenpipe" />
-          <p className="small" style={{ marginBottom: 12 }}>
-            Sur le PC qui a l'historique, dans le dépôt du script <span className="mono">memopipe:analyze</span> :
-          </p>
-          <pre className="code" style={{ padding: "12px 16px", fontSize: 12 }}>
-            {[
-              `# .env`,
-              `SCREENPIPE_LOCAL_API_KEY=...   # screenpipe auth token`,
-              `MEMOPIPE_HUB_URL=${origin}`,
-              `MEMOPIPE_TEAM_TOKEN=${tokenRequired ? "<jeton de l'équipe>" : "(pas de jeton exigé ici)"}`,
-              ``,
-              `bun run memopipe:analyze --hub ${origin} --automation attribuer-acces`,
-            ].map((l, i) => (
-              <div className="ln" key={i}><span className="txt">{l}</span></div>
-            ))}
-          </pre>
-          <p className="small muted" style={{ marginTop: 12 }}>
-            Le script lit Screenpipe en local, montre chaque cas retrouvé, demande votre validation, puis envoie les scénarios validés à{" "}
-            <span className="mono">POST /api/scenarios</span>.
-          </p>
+      <section className="block" id="agent">
+        <h2>Screenpipe</h2>
+        <div className="list">
+          <div className="item">
+            <div>
+              <div className="t">Agent local · Gmail</div>
+              <div className="s">Exécute pour de vrai gmail.search et gmail.send sur le PC qui a Screenpipe.</div>
+            </div>
+            <div className="r">
+              <span className={`tag ${agent.online ? "ok" : ""}`}>
+                <span className="dot" />
+                {agent.online ? "en ligne" : agent.lastSeen ? `vu le ${frDateTime(agent.lastSeen)}` : "jamais connecté"}
+              </span>
+            </div>
+          </div>
         </div>
-        <div>
-          <SectionHead title="Format attendu par le hub" />
-          <pre className="code" style={{ padding: "12px 16px", fontSize: 12 }}>
-            {EXAMPLE.split("\n").map((l, i) => (
-              <div className="ln" key={i}><span className="txt">{l}</span></div>
-            ))}
-          </pre>
+
+        <details className="more">
+          <summary>Lancer l'agent local</summary>
+          <p className="plain" style={{ marginBottom: 10 }}>
+            Le hub ne peut pas joindre Screenpipe : il met les actions Gmail en file d'attente, l'agent les exécute et renvoie le résultat.
+            La lecture passe par la connexion IMAP de Screenpipe, l'envoi par son navigateur.
+          </p>
+          <Code lines={[
+            `# .env du dépôt memopipe-local`,
+            `SCREENPIPE_LOCAL_API_KEY=...   # screenpipe auth token`,
+            `CANARY_HUB_URL=${origin}`,
+            `CANARY_TEAM_TOKEN=${token}`,
+            `CANARY_TEST_INBOX=vous@gmail.com   # tous les envois arrivent ici`,
+            ``,
+            `bun run canary:agent`,
+          ]} />
+        </details>
+        <details className="more">
+          <summary>Importer des tests depuis son historique</summary>
+          <p className="plain" style={{ marginBottom: 10 }}>
+            Le script retrouve dans Screenpipe les cas déjà traités. Les captures restent sur le PC : seuls les cas validés arrivent ici.
+          </p>
+          <Code lines={[
+            `# .env du dépôt memopipe-local`,
+            `SCREENPIPE_LOCAL_API_KEY=...`,
+            `CANARY_HUB_URL=${origin}`,
+            `CANARY_TEAM_TOKEN=${token}`,
+            ``,
+            `bun run canary:analyze --hub ${origin} --automation attribuer-acces`,
+          ]} />
+        </details>
+        <details className="more">
+          <summary>Format envoyé à POST /api/scenarios</summary>
+          <Code lines={EXAMPLE.split("\n")} />
           <p className="tiny muted" style={{ marginTop: 8 }}>
             En-tête {tokenRequired ? "obligatoire" : "facultatif ici"} : <span className="mono">Authorization: Bearer &lt;MEMOPIPE_TEAM_TOKEN&gt;</span>
           </p>
-        </div>
+        </details>
       </section>
 
-      <section className="section">
-        <SectionHead title="Préparer la démo" />
-        <div className="grid">
-          <form action={resetAction} className="card">
-            <input type="hidden" name="scope" value="demo" />
-            <h3>Réinitialiser l'app de démo</h3>
-            <p className="small muted" style={{ margin: "6px 0 14px" }}>
-              Remet les tickets T-1175, T-1182 et T-1201 à « Ouvert » et vide la console des permissions. Le catalogue ne change pas.
-            </p>
-            <button className="btn ghost sm" type="submit">Réinitialiser l'app de démo</button>
+      <section className="block">
+        <h2>Démo</h2>
+        <div className="list">
+          <form action={prepareDemoAction} className="item">
+            <div>
+              <div className="t">Préparer la démo</div>
+              <div className="s">Repart de la v1 d'Alice et de son test CDI, vous connecte en Bob et affiche le fil des 4 étapes.</div>
+            </div>
+            <div className="r"><button className="btn sm" type="submit">Préparer</button></div>
           </form>
-          <form action={resetAction} className="card">
-            <input type="hidden" name="scope" value="all" />
-            <h3>Tout réinitialiser</h3>
-            <p className="small muted" style={{ margin: "6px 0 14px" }}>
-              Repart d'un catalogue avec la seule v1 d'Alice et son scénario CDI. Efface les scénarios, tests et contributions.
-            </p>
-            <button className="btn danger sm" type="submit">Tout réinitialiser</button>
+          <form action={toggleDemoAction} className="item">
+            <input type="hidden" name="on" value={demo ? "0" : "1"} />
+            <div>
+              <div className="t">Fil de la démo</div>
+              <div className="s">{demo ? "Affiché sous la barre du haut." : "Masqué."}</div>
+            </div>
+            <div className="r"><button className="btn ghost sm" type="submit">{demo ? "Masquer" : "Afficher"}</button></div>
           </form>
-          <div className="card">
-            <h3>App de démo Nimbus IT</h3>
-            <p className="small muted" style={{ margin: "6px 0 14px" }}>
-              Les tickets et la console sur lesquels Bob travaille pendant que Screenpipe enregistre.
-            </p>
-            <Link className="btn ghost sm" href="/demo/tickets" target="_blank">Ouvrir Nimbus IT ↗</Link>
+          <div className="item">
+            <div>
+              <div className="t">App de démo Nimbus IT</div>
+              <div className="s">Les tickets et la console sur lesquels Bob travaille pendant que Screenpipe enregistre.</div>
+            </div>
+            <div className="r"><Link className="btn ghost sm" href="/demo/tickets" target="_blank">Ouvrir ↗</Link></div>
           </div>
+          <form action={resetAction} className="item">
+            <input type="hidden" name="scope" value="demo" />
+            <div>
+              <div className="t">Réinitialiser l'app de démo</div>
+              <div className="s">Tickets à « Ouvert », console vide. Le catalogue ne change pas.</div>
+            </div>
+            <div className="r"><button className="btn ghost sm" type="submit">Réinitialiser</button></div>
+          </form>
         </div>
       </section>
     </>
