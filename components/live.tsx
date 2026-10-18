@@ -2,6 +2,21 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { useFormStatus } from "react-dom";
+
+export function PendingRefresh() {
+  const router = useRouter();
+  useEffect(() => {
+    const timer = setInterval(() => { if (document.visibilityState === "visible") router.refresh(); }, 2000);
+    return () => clearInterval(timer);
+  }, [router]);
+  return null;
+}
+
+export function SubmitButton({ children, pending = "En cours…", disabled = false }: { children: React.ReactNode; pending?: string; disabled?: boolean }) {
+  const status = useFormStatus();
+  return <button className="btn" type="submit" disabled={disabled || status.pending}>{status.pending ? pending : children}</button>;
+}
 
 /** Met la page à jour quand le hub change, par exemple quand le script Screenpipe envoie un scénario. */
 export function LiveRefresh({ every = 2000 }: { every?: number }) {

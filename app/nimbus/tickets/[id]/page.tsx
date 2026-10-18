@@ -21,9 +21,9 @@ export default async function TicketPage({ params }: Props) {
 
   return (
     <>
-      <Link className="back" href="/demo/tickets">← Tickets</Link>
+      <Link className="back" href="/nimbus/tickets">← Tickets</Link>
       <h1>{t.id} · Demande d'accès</h1>
-      {t.is_test && <p className="notice wait" style={{ marginBottom: 18 }}>Ticket de test créé par memopipe : copie fraîche d'un scénario.</p>}
+      {t.is_test && <p className="notice wait" style={{ marginBottom: 18 }}>Copie réservée à la vérification d’une procédure.</p>}
 
       <div className="split">
         <section className="stack">
@@ -62,7 +62,7 @@ export default async function TicketPage({ params }: Props) {
 
         <section className="card stack">
           <h2>Actions</h2>
-          <Link className="btn" href={`/demo/console/${encodeURIComponent(r.email)}`}>Ouvrir la console des permissions</Link>
+          <Link className="btn" href={`/nimbus/console/${encodeURIComponent(r.email)}`}>Ouvrir la console des permissions</Link>
           <div className="row">
             {t.status === "open" && (
               <form action={approveTicketAction}>

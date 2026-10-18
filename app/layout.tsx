@@ -9,6 +9,7 @@ const mono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500", "600"], 
 export const metadata: Metadata = {
   title: { default: "memopipe", template: "%s · memopipe" },
   description: "Partager, tester et améliorer les automatisations de l'équipe, avec la mémoire Screenpipe.",
+  icons: { icon: "/brand/memopipe.png", apple: "/brand/memopipe.png" },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

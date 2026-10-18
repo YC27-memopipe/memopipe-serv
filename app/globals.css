@@ -25,6 +25,25 @@
   color-scheme: light;
 }
 
+/* Parcours métier : étapes lisibles et règles éditables sans code. */
+.journey { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 28px; }
+.journey span { border: 1px solid var(--border); border-radius: 999px; padding: 7px 12px; font-size: 13px; color: var(--muted-fg); }
+.journey .active { background: var(--ok-bg); border-color: var(--ok-line); color: var(--ok); font-weight: 600; }
+.workflow-steps { padding-left: 24px; margin: 20px 0; }
+.workflow-steps li { padding: 8px 8px 12px; }
+.workflow-steps li + li { border-top: 1px solid var(--border); }
+.business-rule { margin: 0; border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; background: var(--card); min-width: 0; }
+.business-rule legend { padding: 0 6px; font-weight: 600; }
+.business-changes { display: grid; gap: 18px; margin-top: 16px; }
+.business-changes h3 { margin-bottom: 8px; }
+.business-changes ul { padding-left: 22px; margin: 0; }
+@media (max-width: 700px) {
+  .topbar-inner { height: auto !important; min-height: 60px; flex-wrap: wrap; padding: 12px 16px !important; gap: 12px !important; }
+  .topbar-inner .nav { order: 3; width: 100%; overflow-x: auto; padding-bottom: 4px; gap: 18px; white-space: nowrap; }
+  .journey { flex-direction: column; align-items: flex-start; }
+  .business-rule { padding: 12px; }
+}
+
 * { box-sizing: border-box; }
 html, body { margin: 0; }
 body {
@@ -361,3 +380,22 @@ a.item:hover { background: #fbfbf9; }
 
 .handoff { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
 .handoff p { margin: 0; font-size: 14px; }
+
+/* Découverte depuis l’historique Screenpipe et adaptation d’une procédure. */
+.discovery-intro, .recommendation, .diagnosis { margin: 24px 0; padding: 24px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
+.discovery-intro { border-top: 3px solid #2b6584; }
+.discovery-intro h2, .recommendation h2, .diagnosis h2 { font-size: 23px; margin-bottom: 12px; }
+.discovery-intro p, .recommendation li, .diagnosis li { line-height: 1.65; }
+.discovery-form { display: grid; gap: 18px; margin-top: 24px; }
+.discovery-form select { display: block; margin-top: 8px; padding: 10px; max-width: 100%; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--fg); font: inherit; }
+.consent { display: flex; align-items: flex-start; gap: 12px; margin: 18px 0; font-size: 14px; line-height: 1.6; cursor: pointer; }
+.consent input { width: 18px; height: 18px; margin-top: 3px; flex: none; accent-color: #2b6584; }
+.setup-code { padding: 16px; background: var(--muted); font: 12px/1.8 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.observed-case { border-top: 1px solid var(--border); padding-top: 24px; margin-top: 24px; }
+.observed-case h3 { font-size: 19px; margin-bottom: 8px; }
+.recommendation > ul, .diagnosis > ul { padding-left: 20px; margin-bottom: 18px; }
+@media (max-width: 640px) {
+  .discovery-intro, .recommendation, .diagnosis { padding: 18px; }
+  .discovery-intro .btn, .recommendation .btn { white-space: normal; height: auto; text-align: center; }
+  .topbar-inner .nav { gap: 10px; font-size: 12px; }
+}

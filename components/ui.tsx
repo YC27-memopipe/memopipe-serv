@@ -1,22 +1,19 @@
 import { diffLines } from "diff";
+import Image from "next/image";
 import type { ReactNode } from "react";
 import type { TestOutcome } from "@/lib/data";
 import { frDate, levelLabel, systemLabel, TICKET_STATUS } from "@/lib/labels";
 import type { CompareRow, Evidence, Expected } from "@/lib/types";
+import { friendlyError } from "@/lib/business-workflow";
 
-/** Le logo : un viseur, comme les coins de screenpipe.com. */
-export function Mark({ size = 22 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5" stroke="currentColor" strokeWidth="2" strokeLinecap="square" />
-      <circle cx="12" cy="12" r="3.2" fill="currentColor" />
-    </svg>
-  );
+/** Logo extrait de log.png, sur fond transparent. */
+export function Mark({ size = 32 }: { size?: number }) {
+  return <Image src="/brand/memopipe.png" width={size} height={size} alt="" aria-hidden="true" style={{ objectFit: "contain", flexShrink: 0 }} />;
 }
 
 export function Flash({ error, ok }: { error?: string; ok?: string }) {
   if (!error && !ok) return null;
-  return <p className={`notice ${error ? "ko" : "ok"}`} role={error ? "alert" : "status"}>{error ?? ok}</p>;
+  return <p className={`notice ${error ? "ko" : "ok"}`} role={error ? "alert" : "status"}>{error ? friendlyError(error) : ok}</p>;
 }
 
 export function Avatar({ user, name }: { user: string; name: string }) {
@@ -35,18 +32,18 @@ export function expectedText(expected: Expected): string {
     .join(" · ");
 }
 
-export function EvidenceList({ evidence }: { evidence: Evidence[] }) {
+export function EvidenceList({ evidence, synthetic = false }: { evidence: Evidence[]; synthetic?: boolean }) {
   if (!evidence.length) return null;
   return (
     <details>
-      <summary>{evidence.length} preuve{evidence.length > 1 ? "s" : ""} capturée{evidence.length > 1 ? "s" : ""} par Screenpipe</summary>
+      <summary>{evidence.length} extrait{evidence.length > 1 ? "s" : ""} {synthetic ? "d’exemple" : "de votre activité"}</summary>
       <ul className="evidence">
         {evidence.map((e, i) => (
           <li key={i}>
             <q>{e.quote}</q>
-            {e.frame_id !== undefined && (
-              <a className="mono tiny" href={`screenpipe://frame/${e.frame_id}`} title="Ouvre la capture dans Screenpipe, sur le PC où elle a été prise">
-                frame {e.frame_id} ↗
+            {e.frame_id !== undefined && !synthetic && (
+              <a className="tiny" href={`screenpipe://frame/${e.frame_id}`} title="Ouvrir l’extrait sur votre ordinateur">
+                Voir la source ↗
               </a>
             )}
           </li>
@@ -58,7 +55,7 @@ export function EvidenceList({ evidence }: { evidence: Evidence[] }) {
 
 export function OutcomeTag({ outcome }: { outcome: TestOutcome | null | undefined }) {
   if (!outcome) return <span className="tag">—</span>;
-  if (outcome.error) return <span className="tag ko" title={outcome.error}>✗ erreur</span>;
+  if (outcome.error) return <span className="tag ko" title={friendlyError(outcome.error)}>À vérifier</span>;
   if (outcome.passed) return <span className="tag ok">✓ réussi</span>;
   return <span className="tag ko">✗ {outcome.failures} écart{outcome.failures > 1 ? "s" : ""}</span>;
 }

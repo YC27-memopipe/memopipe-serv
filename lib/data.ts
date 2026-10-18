@@ -3,9 +3,11 @@ import { q, q1 } from "./db";
 import { compile, type DslError, type Program } from "./dsl";
 import { isLevel, SYSTEM_IDS } from "./labels";
 import { compare, runToEnd, start, step } from "./runner";
-import { TABLES } from "./schema";
+import { DEMO_SESSION_SCHEMA, TABLES } from "./schema";
 import { ALICE_AUTOMATION, ALICE_SCENARIO, DEMO_TICKETS } from "./seed";
 import type { Actions, CompareRow, Evidence, Expected, Grant, Requester, RunState, ScenarioInput, Ticket } from "./types";
+import { scopedActions, testProgram } from "./test-policy";
+import { audit, ensureAiSchema, fingerprint } from "./audit";
 
 export const USERS = { alice: "Alice", bob: "Bob", chloe: "Chloé" } as const;
 export type UserId = keyof typeof USERS;
@@ -62,6 +64,9 @@ async function init() {
 /** « demo » remet les tickets et les accès à zéro ; « all » repart aussi d'un catalogue avec la v1 d'Alice. */
 export async function reset(scope: "demo" | "all") {
   if (scope === "all") {
+    // Also supports a running dev server whose DB connection predates this additive table.
+    await q(DEMO_SESSION_SCHEMA);
+    await ensureAiSchema();
     await q(`truncate ${TABLES.join(", ")} restart identity cascade`);
   } else {
     await q("delete from grants");
@@ -72,7 +77,16 @@ export async function reset(scope: "demo" | "all") {
   if (scope === "all") {
     const a = await insertAutomation(ALICE_AUTOMATION);
     await insertScenario(a.id, ALICE_SCENARIO, "alice");
+    await q("insert into demo_session (id, started_at) values (1, now())");
   }
+}
+
+/** A reset starts a fresh rehearsal without deleting any Screenpipe recordings. */
+export async function demoStartedAt(): Promise<string | null> {
+  await init();
+  await q(DEMO_SESSION_SCHEMA);
+  const row = await q1<{ started_at: Date | string }>("select started_at from demo_session where id = 1");
+  return row ? new Date(row.started_at).toISOString() : null;
 }
 
 /** Où en est l'histoire de la démo sur l'automatisation d'Alice : cas Screenpipe, test, contribution. */
@@ -306,7 +320,7 @@ async function viaAgent<T>(action: string, args: Record<string, unknown>): Promi
 }
 
 /** Appelé par l'agent : signale sa présence et prend la plus ancienne action en attente. */
-export async function claimNextJob(label: string) {
+export async function claimNextJob(label: string, author: string = "bob") {
   await init();
   await q(
     "insert into agent_status (id, label, last_seen) values (1, $1, now()) on conflict (id) do update set label = excluded.label, last_seen = now()",
@@ -314,8 +328,11 @@ export async function claimNextJob(label: string) {
   );
   return q1<AgentJob>(
     `update agent_jobs set status = 'claimed', claimed_at = now()
-     where id = (select id from agent_jobs where status = 'pending' order by id limit 1 for update skip locked)
+     where id = (select id from agent_jobs where status = 'pending'
+       and (action <> 'screenpipe.discover' or lower(translate(args->>'author', 'é', 'e')) = $1)
+       order by id limit 1 for update skip locked)
      returning *`,
+    [author],
   );
 }
 
@@ -379,7 +396,8 @@ function testTicketFor(s: ScenarioRow, runId: number): Ticket {
 
 export async function startRun(input: { automationId: number; scenarioId: number; dsl: string; source: string; user: string; batch?: string | null }) {
   await init();
-  const program = programOf(input.dsl);
+  let program: Program;
+  try { program = testProgram(input.dsl); } catch (e) { throw new UserError((e as Error).message); }
   const scenario = await q1<ScenarioRow>("select * from scenarios where id = $1 and automation_id = $2", [input.scenarioId, input.automationId]);
   if (!scenario) throw new UserError("Scénario introuvable.");
   const created = (await q1<RunRow>(
@@ -417,14 +435,14 @@ export async function stepRun(id: number) {
   await init();
   const run = await runRow(id);
   if (run.state.done) return run;
-  return save(run, await step(programOf(run.dsl), run.state, demoActions));
+  return save(run, await step(testProgram(run.dsl), run.state, scopedActions(demoActions, { email: run.test_email, ticket: run.test_ticket })));
 }
 
 export async function finishRun(id: number) {
   await init();
   const run = await runRow(id);
   if (run.state.done) return run;
-  return save(run, await runToEnd(programOf(run.dsl), run.state, demoActions));
+  return save(run, await runToEnd(testProgram(run.dsl), run.state, scopedActions(demoActions, { email: run.test_email, ticket: run.test_ticket })));
 }
 
 export async function getRun(id: number) {
@@ -444,12 +462,12 @@ export function outcomeOf(run: RunRow): TestOutcome {
 }
 
 async function runSuite(input: { automationId: number; dsl: string; source: string; user: string; batch: string }) {
-  const program = programOf(input.dsl);
+  const program = testProgram(input.dsl);
   const scenarios = await q<ScenarioRow>("select * from scenarios where automation_id = $1 order by id", [input.automationId]);
   const out: { scenario: ScenarioRow; outcome: TestOutcome }[] = [];
   for (const scenario of scenarios) {
     const run = await startRun({ ...input, scenarioId: scenario.id });
-    const done = await save(run, await runToEnd(program, run.state, demoActions), scenario);
+    const done = await save(run, await runToEnd(program, run.state, scopedActions(demoActions, { email: run.test_email, ticket: run.test_ticket })), scenario);
     out.push({ scenario, outcome: outcomeOf(done) });
   }
   return out;
@@ -510,12 +528,15 @@ export async function saveDraft(id: number, dsl: string, user: string) {
   const d = await draftFor(id, user);
   if (!["draft", "proposed"].includes(d.draft.status)) throw new UserError("Cette contribution est déjà traitée.");
   const c = compile(dsl);
-  await q("update drafts set dsl = $2, results = null where id = $1", [id, dsl]);
+  await q("update drafts set dsl = $2, results = null, status = 'draft', proposed_at = null where id = $1", [id, dsl]);
+  await audit(user, "draft.saved", `draft:${id}`, { before: fingerprint(d.draft.dsl), after: fingerprint(dsl), tests_invalidated: true });
   if (!c.ok) throw new UserError(`Copie enregistrée, mais elle ne compile pas :\n${formatErrors(c.errors)}`);
 }
 
 export async function testDraft(id: number, user: string) {
   const d = await draftFor(id, user);
+  if (d.draft.status !== "draft") throw new UserError("Cette copie n’est plus modifiable.");
+  testProgram(d.draft.dsl);
   const batch = `d${id}-${Date.now().toString(36)}`;
   const base = await runSuite({ automationId: d.automation.id, dsl: d.base.dsl, source: `v${d.base.number}`, user, batch });
   const copy = await runSuite({ automationId: d.automation.id, dsl: d.draft.dsl, source: `copie #${id}`, user, batch });
@@ -526,7 +547,9 @@ export async function testDraft(id: number, user: string) {
     base: base.find((b) => b.scenario.id === c.scenario.id)?.outcome ?? null,
     copy: c.outcome,
   }));
-  await q("update drafts set results = $2::jsonb where id = $1", [id, JSON.stringify(results)]);
+  const updated = await q("update drafts set results = $2::jsonb where id = $1 and dsl = $3 and status = 'draft' returning id", [id, JSON.stringify(results), d.draft.dsl]);
+  if (!updated.length) throw new UserError("La copie a changé pendant les tests. Relancez-les.");
+  await audit(user, "draft.tested", `draft:${id}`, { dsl: fingerprint(d.draft.dsl), results });
   return results;
 }
 
@@ -534,9 +557,13 @@ export async function proposeDraft(id: number, reason: string, user: string) {
   const d = await draftFor(id, user);
   if (d.draft.status !== "draft") throw new UserError("Cette copie est déjà proposée.");
   if (!reason.trim()) throw new UserError("Explique pourquoi tu proposes cette modification.");
-  if (!d.draft.results) throw new UserError("Lance « Tout tester » avant de proposer : la contribution doit contenir ses résultats.");
+  if (!d.draft.results?.length) throw new UserError("Lance « Tout tester » avant de proposer : la contribution doit contenir ses résultats.");
+  if (d.stale) throw new UserError("La version de base est obsolète.");
+  const scenarios = await q<ScenarioRow>("select * from scenarios where automation_id = $1 order by id", [d.automation.id]);
+  if (scenarios.length !== d.draft.results.length || scenarios.some(s => !d.draft.results!.some(r => r.scenarioId === s.id))) throw new UserError("Les scénarios ont changé : relancez les tests.");
   if (d.draft.dsl.trim() === d.base.dsl.trim()) throw new UserError("La copie est identique à la version de base.");
   await q("update drafts set status = 'proposed', reason = $2, proposed_at = now() where id = $1", [id, reason.trim()]);
+  await audit(user, "draft.proposed", `draft:${id}`, { dsl: fingerprint(d.draft.dsl), base_version: d.base.id });
 }
 
 export async function addComment(draftId: number, user: string, body: string) {
@@ -555,15 +582,32 @@ export async function approveDraft(id: number, user: string) {
 
   const batch = `a${id}-${Date.now().toString(36)}`;
   const check = await runSuite({ automationId: d.automation.id, dsl: d.draft.dsl, source: `copie #${id}`, user, batch });
-  if (check.some((c) => !c.outcome.passed)) throw new UserError("Un scénario échoue sur la copie : approbation impossible.");
+  if (!check.length || check.some((c) => !c.outcome.passed)) throw new UserError("Un scénario échoue sur la copie ou aucun cas validé : approbation impossible.");
+  const fresh = await getDraft(id);
+  const casesNow = await q<ScenarioRow>("select * from scenarios where automation_id = $1 order by id", [d.automation.id]);
+  if (!fresh || fresh.stale || fresh.draft.status !== "proposed" || fresh.draft.dsl !== d.draft.dsl || fingerprint(casesNow) !== fingerprint(check.map(c => c.scenario))) throw new UserError("Le code, les scénarios ou la version ont changé pendant les tests. Recommencez la revue.");
 
-  const next = await q1<{ n: number }>("select (coalesce(max(number), 0) + 1)::int as n from versions where automation_id = $1", [d.automation.id]);
-  const version = (await q1<VersionRow>(
-    "insert into versions (automation_id, number, dsl, author, note, approved_by) values ($1, $2, $3, $4, $5, $6) returning *",
-    [d.automation.id, next!.n, d.draft.dsl, d.draft.author, d.draft.reason, user],
-  ))!;
-  await q("update automations set current_version = $1 where id = $2", [version.id, d.automation.id]);
-  await q("update drafts set status = 'approved', decided_by = $2, decided_at = now(), published_version = $3 where id = $1", [id, user, version.number]);
+  // Lock and compare exact source/version/corpus in the SAME SQL statement as publication.
+  // Concurrent approvals or edits cannot publish a different, untested draft.
+  const corpus = casesNow.map(s => ({ id: s.id, ticket: s.ticket, expected: s.expected, evidence: s.evidence }));
+  const version = await q1<VersionRow>(`with candidate as materialized (
+    select d.* from drafts d join automations a on a.id = d.automation_id
+    where d.id = $1 and d.status = 'proposed' and d.dsl = $2 and d.reason = $6
+      and a.current_version = d.base_version and a.owner = $3 and d.author <> $3
+      and (select coalesce(jsonb_agg(jsonb_build_object('id', s.id, 'ticket', s.ticket, 'expected', s.expected, 'evidence', s.evidence) order by s.id), '[]'::jsonb) from scenarios s where s.automation_id = a.id) = $5::jsonb
+    for update of d, a
+  ), published as (
+    insert into versions (automation_id, number, dsl, author, note, approved_by)
+    select automation_id, $4, dsl, author, reason, $3 from candidate returning *
+  ), updated_catalog as (
+    update automations a set current_version = p.id from published p where a.id = p.automation_id returning a.id
+  ), updated_draft as (
+    update drafts d set status = 'approved', decided_by = $3, decided_at = now(), published_version = $4
+    from published p where d.id = $1 and p.automation_id = d.automation_id returning d.id
+  ) select p.* from published p, updated_catalog, updated_draft`,
+    [id, d.draft.dsl, user, d.base.number + 1, JSON.stringify(corpus), d.draft.reason]);
+  if (!version) throw new UserError("La contribution ou les scénarios ont changé pendant la revue. Publication annulée.");
+  await audit(user, "draft.approved", `draft:${id}`, { dsl: fingerprint(version.dsl), version_id: version.id, number: version.number, author: d.draft.author, results: check.map(c => c.outcome) });
   return version;
 }
 
@@ -573,6 +617,7 @@ export async function rejectDraft(id: number, user: string) {
   if (d.automation.owner !== user) throw new UserError(`Seul le propriétaire (${userName(d.automation.owner)}) peut refuser.`);
   if (d.draft.status !== "proposed") throw new UserError("Cette contribution n'est pas en attente.");
   await q("update drafts set status = 'rejected', decided_by = $2, decided_at = now() where id = $1", [id, user]);
+  await audit(user, "draft.rejected", `draft:${id}`, { dsl: fingerprint(d.draft.dsl) });
 }
 
 export async function listContributions() {

@@ -38,6 +38,7 @@ class SyntaxErr extends Error {}
 type Tok = { t: "str"; v: string } | { t: "num"; v: number } | { t: "id"; v: string } | { t: "op"; v: string };
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*/;
+const FORBIDDEN = ["__proto__", "prototype", "constructor"];
 
 function tokenize(src: string): Tok[] {
   const out: Tok[] = [];
@@ -88,7 +89,9 @@ export function parseExpr(src: string): Expr {
       if (t.v === "false") return { k: "lit", v: false };
       if (t.v === "null") return { k: "lit", v: null };
       if (["and", "or", "not", "contains"].includes(t.v)) throw new SyntaxErr(`« ${t.v} » mal placé`);
-      return { k: "path", p: t.v.split(".") };
+      const p = t.v.split(".");
+      if (p.some(s => FORBIDDEN.includes(s))) throw new SyntaxErr("chemin réservé interdit");
+      return { k: "path", p };
     }
     throw new SyntaxErr(`« ${t.v} » inattendu`);
   };
@@ -128,6 +131,7 @@ export function parseExpr(src: string): Expr {
 export function lookup(vars: Record<string, unknown>, path: string[]): unknown {
   let cur: unknown = vars;
   for (const seg of path) {
+    if (FORBIDDEN.includes(seg)) return null;
     if (cur === null || typeof cur !== "object" || !Object.prototype.hasOwnProperty.call(cur, seg)) return null;
     cur = (cur as Record<string, unknown>)[seg];
   }
@@ -193,6 +197,7 @@ function parseDo(full: string, line: number, depth: number): Instruction {
   const arrow = /\s*->\s*([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(full);
   const rest = arrow ? full.slice(0, arrow.index) : full;
   const into = arrow?.[1];
+  if (into && FORBIDDEN.includes(into)) throw new SyntaxErr("variable réservée interdite");
   if (into === "ticket") throw new SyntaxErr("« ticket » est réservé au ticket du test");
   const head = /^([A-Za-z]+\.[A-Za-z_]+)(?:\s+|$)/.exec(rest);
   if (!head) throw new SyntaxErr("DO attend une action, par exemple « DO iam.grant … »");
@@ -236,6 +241,7 @@ function parseDo(full: string, line: number, depth: number): Instruction {
 }
 
 export function compile(dsl: string): CompileResult {
+  if (dsl.length > 30000 || dsl.split("\n").length > 250) return { ok: false, errors: [{ line: 1, message: "code trop long (250 lignes maximum)" }] };
   const lines = dsl.replace(/\r\n?/g, "\n").split("\n");
   const instructions: Instruction[] = [];
   const errors: DslError[] = [];
@@ -258,6 +264,7 @@ export function compile(dsl: string): CompileResult {
           const m = /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/.exec(rest);
           if (!m) throw new SyntaxErr("forme attendue : SET nom = expression");
           if (m[1] === "ticket") throw new SyntaxErr("« ticket » est réservé au ticket du test");
+          if (FORBIDDEN.includes(m[1])) throw new SyntaxErr("variable réservée interdite");
           instructions.push({ op: "set", line, depth, name: m[1], expr: parseExpr(m[2]) });
           break;
         }

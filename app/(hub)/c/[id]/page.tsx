@@ -1,17 +1,19 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { Avatar, DiffView, Flash, OutcomeTag } from "@/components/ui";
+import { Avatar, Flash, OutcomeTag } from "@/components/ui";
+import { WorkflowChanges } from "@/components/workflow";
 import { getDraft, userName } from "@/lib/data";
-import { enTantQue, frDateTime } from "@/lib/labels";
+import { frDateTime } from "@/lib/labels";
 import { currentUser } from "@/lib/session";
-import { approveAction, commentAction, rejectAction, setUserAction } from "../../actions";
+import { DraftAudit } from "@/components/draft-audit";
+import { approveAction, commentAction, rejectAction } from "../../actions";
 
 type Props = {
   params: Promise<{ id: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export const metadata = { title: "Contribution" };
+export const metadata = { title: "Validation d’une amélioration" };
 
 export default async function ContributionPage({ params, searchParams }: Props) {
   const id = Number((await params).id);
@@ -37,7 +39,7 @@ export default async function ContributionPage({ params, searchParams }: Props) 
     <>
       <Link className="back" href={`/a/${automation.slug}`}>← {automation.title}</Link>
       <div className="head">
-        <h1>Contribution de {userName(draft.author)}</h1>
+        <h1>Amélioration proposée par {userName(draft.author)}</h1>
         <p className="meta">
           <span className={`tag ${status.cls}`}>{status.label}</span> {automation.title} · depuis la v{base.number}
           {draft.proposed_at ? ` · ${frDateTime(draft.proposed_at)}` : ""}
@@ -47,6 +49,7 @@ export default async function ContributionPage({ params, searchParams }: Props) 
       <Flash error={typeof sp.error === "string" ? sp.error : undefined} ok={typeof sp.ok === "string" ? sp.ok : undefined} />
 
       <blockquote className="quote">{draft.reason}</blockquote>
+      <DraftAudit id={id} />
 
       <section className="block">
         {results.length === 0 ? (
@@ -92,11 +95,6 @@ export default async function ContributionPage({ params, searchParams }: Props) 
             <p>
               C'est à <strong>{userName(automation.owner)}</strong>, propriétaire, de décider : l'auteur d'une contribution ne peut pas l'approuver.
             </p>
-            <form action={setUserAction}>
-              <input type="hidden" name="user" value={automation.owner} />
-              <input type="hidden" name="next" value={`/c/${id}`} />
-              <button className="btn" type="submit">Continuer {enTantQue(userName(automation.owner))} →</button>
-            </form>
           </div>
         ) : (
           <p className="plain">En attente de la décision de {userName(automation.owner)}.</p>
@@ -124,7 +122,7 @@ export default async function ContributionPage({ params, searchParams }: Props) 
 
       <section className="block">
         <h2>Modifications</h2>
-        <DiffView before={base.dsl} after={draft.dsl} />
+        <WorkflowChanges before={base.dsl} after={draft.dsl} />
       </section>
 
       <section className="block" id="discussion">

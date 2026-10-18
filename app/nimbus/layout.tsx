@@ -12,19 +12,19 @@ function NimbusMark() {
 }
 
 // Outil interne fictif de Nimbus, sur lequel les automatisations agissent et que Screenpipe observe.
-export default function DemoLayout({ children }: { children: React.ReactNode }) {
+export default function NimbusLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="nimbus">
       <header className="topbar">
         <div className="topbar-inner">
-          <Link href="/demo/tickets" className="brand">
+          <Link href="/nimbus/tickets" className="brand">
             <NimbusMark />
             <span className="brand-name">Nimbus IT</span>
             <span className="brand-sub">outil interne</span>
           </Link>
           <nav className="nav">
-            <Link href="/demo/tickets">Tickets</Link>
-            <span className="demo-note">App de démo fictive</span>
+            <Link href="/nimbus/tickets">Tickets</Link>
+            
             <Link href="/">memopipe ↗</Link>
           </nav>
         </div>

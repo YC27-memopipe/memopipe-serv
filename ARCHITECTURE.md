@@ -1,385 +1,143 @@
-<!-- screenpipe — AI that knows everything you've seen, said, or heard -->
-<!-- https://screenpipe.com -->
-# memopipe — MVP en 12 h
+# Memopipe : mémoire Screenpipe, catalogue et diagnostic IA sous revue humaine
 
-> Une équipe partage ses automatisations. Avant d'en réutiliser une, chacun la teste sur les cas réels de son propre historique Screenpipe, voit le résultat de chaque étape, la corrige et propose sa correction. Le propriétaire approuve, et la nouvelle version profite à tout le monde.
+## Parcours Alice / Bob
 
-*memopipe is a collaborative automation platform powered by Screenpipe. Teams share workflows, test them against their own work history, discover overlooked edge cases, and contribute improvements back to the team.*
+1. Alice publie son automatisation DSL dans le catalogue avec un cas de référence. Le code ne provient pas de son historique Screenpipe.
+2. Bob travaille dans Nimbus IT. Screenpipe capture les tickets consultés et les permissions enregistrées.
+3. Dans **Découvrir**, Bob autorise une lecture bornée de son historique et la transmission au hub des champs et citations sélectionnés. L’agent de son PC lit Screenpipe localement ; les captures complètes restent sur le PC.
+4. Le hub compare les cas retrouvés au **code publié des procédures**, sans consulter l’historique d’Alice. Il rapproche les opérations et systèmes communs, même si les permissions diffèrent.
+5. Bob examine les preuves et confirme les cas corrects. Seuls les cas confirmés deviennent des références de test.
+6. Le moteur exécute la procédure sur un ticket et un demandeur dédiés au test, puis mesure les différences entre attendus et résultats.
+7. Sur un test en échec, Bob examine le contexte minimisé et autorise **séparément** son envoi au fournisseur IA affiché. Afficher une page ne déclenche aucun appel au modèle.
+8. L’IA explique les écarts, distingue observations et hypothèses, cite des lignes/extraits et peut proposer du DSL. Elle peut aussi demander des précisions ou ne pas proposer de correction. L’ancien générateur de diagnostics/corrections par règles a été retiré ; aucune réponse fictive ne remplace une API absente.
+9. Le serveur valide le format, les références et le code, puis rejoue la proposition en mémoire sur **tous** les cas validés. Une proposition échouant aux tests reste visible, mais son application automatique est bloquée.
+10. Bob examine les hypothèses et accepte la proposition dans une copie éditable. Le hub la teste dans Nimbus sur les cas d’Alice et de Bob. Toute sauvegarde invalide les résultats et remet une contribution proposée en brouillon.
+11. Bob propose sa contribution. Alice, propriétaire distinct de l’auteur, approuve après un nouveau passage des tests. Une nouvelle version de la **même procédure** devient commune à l’équipe. Les anciennes versions restent disponibles.
 
-Ce document ne garde que le strict nécessaire pour la démo du MVP. La version complète est sauvegardée hors du repo.
+## Composants et frontières
 
-## 1. Ce que la démo doit montrer
+### Interface métier
 
-1. **Alice publie** son automatisation « Attribuer les accès d'un nouvel arrivant » (v1), testée sur un cas CDI.
-2. **Bob veut la réutiliser.** Il lance le script d'analyse sur son PC.
-3. **Screenpipe fournit un cas réel.** Le script retrouve dans l'historique de Bob un ticket de prestataire traité avec des accès limités. Bob valide ce comportement, et le cas devient un scénario de test.
-4. **Bob teste la v1 pas à pas.** Chaque étape s'exécute sur l'app de démo, avec son résultat affiché.
-5. **L'anomalie apparaît.** La v1 donne le VPN de production et GitHub en écriture à un prestataire, sans expiration.
-6. **Bob corrige une copie**, relance tous les tests : tout passe, y compris le cas d'Alice.
-7. **Bob propose sa correction** avec ses résultats de tests.
-8. **Alice approuve** : la v2 est publiée.
+Le parcours utilise des formulaires et des résumés métier, sans éditeur DSL, JSON, commandes d’installation ni commandes de démonstration dans les pages. `lib/business-workflow.ts` traduit les instructions compilées en actions lisibles et applique uniquement les droits/durées édités dans le formulaire ; les conditions, cibles et autres étapes sont préservées. Toute sauvegarde utilise une empreinte de la révision et invalide les anciens tests.
 
-## 2. Ce qu'on ne fait pas
+`components/workflow.tsx` présente les règles et changements. Les cas manuels et la publication sont des formulaires structurés. L’assistant explique ses propositions en langage métier et conserve ses références techniques côté serveur. Le dossier exact envoyé reste téléchargeable avant consentement. Les erreurs de connexion affichent une consigne compréhensible.
 
-- **Pas de sandbox.** Les tests s'exécutent pour de vrai sur l'app de démo. Chaque test travaille sur une copie fraîche du ticket, donc les tests ne se marchent pas dessus. Avec de vrais systèmes, il faudra une sandbox ; ici, l'app de démo joue ce rôle.
-- **Pas d'agent local avec interface.** Côté PC, seulement un script en terminal. Tout le reste est dans le hub web.
-- **Pas d'IA obligatoire.** L'app de démo affiche un texte qu'on contrôle, donc de simples expressions régulières suffisent à la lire. L'IA est un bonus (section 12).
-- **Pas de vraie authentification.** On choisit « Je suis Alice » ou « Je suis Bob ». Alice est propriétaire de l'automatisation.
-- **Pas de messagerie.** Les échanges entre collègues sont des commentaires sur le ticket.
-- **Pas de synchro hors ligne, d'anonymisation, de rôles, de rebase, de fusion de doublons, ni de vraie intégration.** Toutes les données sont fictives.
-
-## 3. Architecture
+Les outils Nimbus sont désormais sous `/nimbus/*`, avec redirection des anciens liens `/demo/*`. Les commandes de préparation/réinitialisation restent des outils techniques, sans bouton dans l’interface. Les données synthétiques restent explicitement signalées comme exemples. Le sélecteur d’espace conserve le mécanisme de profils du prototype ; cette refonte n’ajoute pas une authentification de production.
 
 ```mermaid
 flowchart LR
-    subgraph PC["PC de Bob"]
-        SP["Screenpipe<br/>localhost:3030"]
-        SC["Script canary:analyze<br/>(Bun)"]
-        SC -->|"lit l'historique"| SP
-    end
-    subgraph V["Render"]
-        HUB["Hub memopipe (Next.js)<br/>catalogue, tests pas à pas,<br/>contributions"]
-        DEMO["App de démo<br/>tickets + console des permissions"]
-        DB[("Prisma Postgres")]
-        HUB --- DB
-        DEMO --- DB
-    end
-    SC -->|"scénarios validés"| HUB
-    HUB -->|"exécute les étapes"| DEMO
+    N[Nimbus dans le navigateur] --> SP[Screenpipe local]
+    SP -->|lecture consentie et bornée| AG[Agent du PC de Bob]
+    AG -->|cas et extraits sélectionnés| H[Hub Memopipe]
+    CAT[Catalogue DSL versionné] --> H
+    H --> T[Tests et comparaison déterministes]
+    T --> PRE[Aperçu du contexte et consentement IA]
+    PRE -->|JSON minimisé| AI[API OpenAI]
+    AI -->|JSON sans outils ni autorité| V[Validation et répétition en mémoire]
+    V --> REV[Revue de Bob et copie éditable]
+    REV --> REG[Tests Nimbus Alice et Bob]
+    REG --> APR[Approbation du propriétaire]
+    APR --> CAT
+    H --- DB[(Postgres ou PGlite)]
+    V --- DB
 ```
 
-| Composant | Où | Rôle |
-|---|---|---|
-| **Hub memopipe** | Render : Next.js + Prisma Postgres | Catalogue, publication, scénarios, test pas à pas, copie de travail, contribution, approbation |
-| **App de démo « Nimbus IT »** | Même projet Next.js, sous `/demo` | Tickets et console des permissions. Les automatisations agissent dessus, et Screenpipe la capture quand Bob l'utilise. |
-| **Script `canary:analyze`** | PC de chaque membre, Bun | Lit Screenpipe en local, reconstruit les cas, demande la validation, envoie les scénarios validés |
+Le serveur hébergé ne contacte jamais le localhost du PC. L’agent interroge le hub avec le jeton d’équipe et récupère les analyses correspondant à `CANARY_AUTHOR`. Alternative terminal : `bun run canary:discover --since 24h`, avec consentement de lecture puis de transmission. `--fixtures fixtures/bob.json` est une démonstration fictive, signalée comme telle.
 
-Les captures Screenpipe ne quittent jamais le PC. Le script n'envoie que les scénarios validés par Bob : champs du ticket, accès attendus, et quelques citations avec leur ID de frame.
+Nimbus est une application IT de démonstration sous `/demo`. Ses données métier sont fictives ; son utilisation et sa capture par Screenpipe peuvent être réelles. L’observateur reconnaît les tickets et les résumés « Modifications enregistrées » de Nimbus, pas toute application arbitraire. Les cas incomplets/ambigus sont écartés. L’attendu `done` est un objectif à confirmer, pas une conclusion tirée automatiquement de l’historique.
 
-Dépôt `memopipe-serv` (le hub, l'app de démo et le moteur) :
+`lib/recommendations.ts` rapproche le DSL publié des cas de demandes d’accès. Le score est structurel, pas une probabilité de réussite. Cette étape reste déterministe et spécialisée Nimbus. **Le diagnostic et la proposition de correction sont générés par l’API IA.**
 
-```
-memopipe-serv/
-├── app/
-│   ├── (hub)/                          # le hub memopipe
-│   │   ├── page.tsx                    # catalogue
-│   │   ├── a/new/page.tsx              # publier une automatisation
-│   │   ├── a/[slug]/page.tsx           # fiche : DSL, scénarios, « Tout tester », contributions, versions
-│   │   ├── d/[id]/page.tsx             # copie de travail : éditeur, « Tout tester », diff, « Proposer »
-│   │   ├── c/[id]/page.tsx             # contribution : diff, résultats, discussion, décision
-│   │   ├── runs/[id]/page.tsx          # test pas à pas
-│   │   ├── contributions/page.tsx      # toutes les contributions
-│   │   ├── equipe/page.tsx             # membres, branchement Screenpipe, réinitialisation de la démo
-│   │   ├── layout.tsx                  # barre du haut, « Je suis Alice / Bob / Chloé »
-│   │   └── actions.ts                  # server actions du hub
-│   ├── demo/                           # app de démo « Nimbus IT » : tickets et console des permissions
-│   ├── api/scenarios/route.ts          # GET : automatisations ; POST : scénario envoyé par le script
-│   └── api/demo/reset/route.ts         # remise à zéro de la démo
-├── components/                         # affichage du DSL, diff, tableaux, formulaires
-├── lib/
-│   ├── types.ts                        # contrats (actions, état d'un test, format d'un scénario)
-│   ├── dsl.ts                          # parser, expressions, compilation en instructions
-│   ├── runner.ts                       # exécution pas à pas, comparaison attendu/obtenu
-│   ├── labels.ts                       # libellés affichés par la console (lus par le script)
-│   ├── data.ts                         # toutes les opérations : catalogue, tests, contributions, démo
-│   ├── db.ts, schema.ts                # Postgres : Prisma Postgres en production, PGlite en local
-│   └── seed.ts                         # données de départ (v1 d'Alice, tickets)
-└── tests/                              # bun test : moteur + parcours complet sur Postgres en mémoire
-```
+## Contrat IA
 
-Le script `canary:analyze` n'est pas dans ce dépôt : il tourne sur le PC qui a l'historique Screenpipe, et ne parle au hub que par `POST /api/scenarios`.
+- `lib/ai-contract.ts` : types versionnés, JSON Schema de sortie, prompt système versionné, masquage et validation locale.
+- `lib/ai-client.ts` : transport serveur Chat Completions, JSON Schema strict, `store:false`, sans outils ni retry automatique.
+- `lib/ai-diagnosis.ts` : aperçu, consentement, persistance, vérifications et acceptation dans une copie.
+- `lib/rehearsal.ts` : exécution en mémoire, sans génération d’explication ni de code.
 
-### Stack
+L’entrée `memopipe-diagnosis-input/v1` contient la version exacte et le code, l’entrée du cas en échec, les attendus, le tableau obtenu, l’erreur, les étapes exécutées, les cas de régression, les extraits sélectionnés et la politique `proposal_only`.
 
-| Partie | Technos |
+La sortie `memopipe-diagnosis-output/v1` contient `summary`, `causes` (`kind`, `explanation`, `source_lines`, `evidence_ids`), `open_questions`, `proposed_dsl` nullable et `change_explanation`. Les propriétés supplémentaires, références inconnues et lignes inexistantes sont refusées. Le modèle ne peut définir ni approbation ni décision de publication.
+
+Les références garantissent le rattachement à une source fournie, **pas la vérité de l’explication**. La réussite des cas connus ne prouve pas une règle universelle ; les hypothèses et questions doivent être examinées par les humains.
+
+L’aperçu contient exactement les données JSON remises au modèle, en plus du prompt système et du schéma fixes du dépôt. Son empreinte lie le consentement au fournisseur, modèle, prompt, code, version, test et corpus. Un changement impose un nouvel aperçu/consentement et invalide l’application d’une ancienne proposition.
+
+## Sécurité effectivement imposée
+
+| Frontière | Contrôle du prototype |
 |---|---|
-| Langage | TypeScript partout |
-| Hub et app de démo | Next.js 16 (App Router, server actions) + React 19 ; CSS maison (`app/globals.css`) aux couleurs de screenpipe.com ; polices IBM Plex Sans, IBM Plex Mono et Crimson Text |
-| Base de données | Prisma Postgres en production, via le pilote standard `pg` et `DATABASE_URL` (n'importe quel Postgres convient : Neon, Render…). Sans `DATABASE_URL`, PGlite (Postgres embarqué) dans `.data/pglite`, en local uniquement : il dépasse 512 Mo de mémoire au premier démarrage. Même SQL, écrit à la main dans `lib/schema.ts`, sans ORM. |
-| Moteur (DSL, runner) | TypeScript pur dans `lib/`, sans aucun import de Next.js : il se teste seul avec `bun test` |
-| Diff des contributions | Paquet npm `diff` |
-| Hébergement | Render (service web Node), racine du dépôt `memopipe-serv` : https://memopipe-serv.onrender.com |
-| Script local | Bun 1.3 ou plus (comme le starter), sans dépendance ; Bun charge `.env` tout seul |
-| Screenpipe | API REST locale `http://localhost:3030`, clé `SCREENPIPE_LOCAL_API_KEY` |
-| Paquets et tests | Bun partout (`bun install`, `bun test`) ; Render détecte Bun grâce à `bun.lock` |
-| IA | Aucune dans le MVP. Les bonus réutilisent l'adaptateur compatible OpenAI du starter (`AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY`). |
+| Screenpipe → agent | Loopback, clé Bearer, période fixe, pagination et refus des redirections ; fenêtres Nimbus reconnues uniquement |
+| Agent → hub | Jeton partagé, période consentie vérifiée, provenance fictive/observée conservée |
+| Hub → IA | POST explicite après consentement ; fournisseur/modèle affichés ; contexte limité à 60 Ko et 30 cas ; 30 extraits maximum du cas de l’utilisateur |
+| Données privées | Pas de capture complète ni d’historique brut ; noms/adresses connus et motifs de secrets masqués ; pas d’extraits Screenpipe d’un autre membre envoyés au nom de Bob |
+| Injection dans les captures | Commentaires, extraits et logs traités comme données non fiables ; aucun outil donné au modèle |
+| Réseau IA | HTTPS sauf HTTP loopback local/test ; aucune redirection ni identifiants dans l’URL ; clé serveur uniquement |
+| Ressources IA | Délai 45 s, sortie 6 000 tokens, réponse HTTP 160 Ko ; un appel simultané par utilisateur et test ; aucun nouvel essai automatique |
+| IA → moteur | Schéma/références revalidés, compilation DSL sans eval, taille limitée et variables de prototype interdites |
+| Actions de test | Liste fermée iam.grant, tickets.comment, tickets.close ; Gmail refusé dans toutes les branches avant exécution |
+| Cibles de test | Email et ticket exacts du run contrôlés avant chaque mutation, y compris pour le code manuel |
+| Publication | Propriétaire distinct de l’auteur, version courante, suite non vide et réussie, code/corpus recontrôlés ; insertion de version et publication atomiques |
 
-Variables d'environnement :
-- **Hub** (onglet Environment de Render) : `DATABASE_URL` (obligatoire), `MEMOPIPE_TEAM_TOKEN` (facultatif). Render fournit `PORT` tout seul.
-- **Script et agent** (`.env` de memopipe-local) : `SCREENPIPE_LOCAL_API_KEY`, `CANARY_HUB_URL`, `CANARY_TEAM_TOKEN` (la valeur de `MEMOPIPE_TEAM_TOKEN`), `CANARY_TEST_INBOX` pour l'agent.
+Le masquage minimise les identifiants connus ; **il ne garantit pas l’anonymisation du texte libre**. L’utilisateur doit examiner le contexte. Son consentement ne remplace pas l’autorisation organisationnelle d’envoyer le code et les cas structurés partagés à un fournisseur externe. Les erreurs et refus API restent affichés sans faux diagnostic de secours.
 
-### Dépôt et répartition
+## Traçabilité et limites de gouvernance
 
-**Deux dépôts.** `memopipe-serv` contient le hub, l'app de démo et le moteur (le moteur est déjà écrit et testé). Le script `canary:analyze` vit à part, sur le PC qui a l'historique Screenpipe. Les deux ne partagent qu'un contrat : le format d'un scénario envoyé à `POST /api/scenarios` (section 6, type `ScenarioInput` dans `lib/types.ts`).
+`ai_analyses` conserve acteur/date du consentement, fournisseur, modèle, version du prompt, empreinte du contexte, JSON minimisé envoyé, réponse validée, vérifications et copie associée. Les sorties malformées ne deviennent pas des propositions exécutables.
 
-| Personne | Partie | Où |
-|---|---|---|
-| A | Script Screenpipe | Script `canary:analyze` et ses fixtures, mise en scène de l'historique (bloc 3) |
-| B | Site | `memopipe-serv` : `app/`, `components/`, `lib/` |
+`audit_events` enregistre consentement, résultat IA, acceptation dans une copie, sauvegarde humaine, tests, proposition, refus et approbation. Le journal est consultable dans la copie et la revue, avec les empreintes du code et la référence de l’analyse. Ce journal applicatif n’est pas inviolable face à un administrateur de la base.
 
-Deux choses ne doivent plus changer une fois figées, parce que le script les lit avec des expressions régulières :
-1. le format d'un scénario (section 6) ;
-2. le texte exact des pages de démo (section 4), défini dans `lib/labels.ts` et `app/demo/`.
+**Identités de démonstration** : Alice/Bob/Chloé sont sélectionnés par cookie et l’agent par configuration locale. Les contrôles de rôle illustrent la gouvernance mais ne constituent pas une authentification de production. Avant des données réelles d’organisation : authentification, appartenance d’équipe, jeton par agent, politique d’accès au catalogue/preuves, rétention/purge, protection du journal et politique fournisseur restent à définir. Aucune conformité juridique automatique n’est revendiquée.
 
-## 4. L'app de démo
+Les données persistent dans Postgres ou `.data/pglite` jusqu’à suppression. La préparation complète efface les tables de démonstration, analyses et journal inclus ; elle ne supprime pas Screenpipe. Le marqueur `demo_session` limite la découverte web aux observations postérieures à la dernière préparation.
 
-Deux pages, plus des données de départ.
+## Configuration OpenAI
 
-**Tickets** (`/demo/tickets/T-1182`)
-- Champs : type, statut, demandeur (nom, email, type de contrat, équipe, fin de mission) et commentaires.
-- Boutons : « Approuver », « Commenter », « Terminer ».
-- Titre de la page : `T-1182 · Tickets Nimbus`. Screenpipe le récupère dans `window_name`, ce qui permet de découper l'historique ticket par ticket.
+Dans `memopipe-serv/.env`, sans clé dans le code ni dans une variable `NEXT_PUBLIC_*` :
 
-**Console des permissions** (`/demo/console/<email>`)
-- Un sélecteur par système, une date d'expiration et un bouton « Enregistrer ».
-- Après l'enregistrement, un résumé en texte simple :
-  ```
-  Modifications enregistrées le 18/10/2026 à 09:24
-  GitHub : Lecture seule
-  VPN production : Non
-  Slack : Invité
-  Expiration : 15/01/2027
-  ```
-- Titre de la page : `Console des permissions · <email>`.
-
-Pour que Screenpipe lise bien ces pages : du vrai texte HTML (ni image ni canvas), des libellés stables de la forme « Système : Niveau », et l'email du demandeur visible sur le ticket et dans la console.
-
-**Données de départ** (`/demo/reset`)
-
-| Ticket | Demandeur (fictif) | Contrat | Rôle dans la démo |
-|---|---|---|---|
-| T-1175 | Hugo Petit | CDI, support | Cas de Bob, conforme à la v1 |
-| T-1182 | Inès Fabre | Prestataire, data, fin le 15/01/2027 | Cas de Bob qui révèle l'anomalie |
-| T-1201 | Nora Diallo | Prestataire, design | Bonus : exécution réelle de la v2 |
-
-## 5. Le format des automatisations
-
-```
-AUTOMATION "Attribuer les accès d'un nouvel arrivant"
-USAGE "Demandes d'accès approuvées. Attribue le profil standard."
-
-SET p = ticket.requester
-DO iam.grant user=p.email system="github" level="write"
-DO iam.grant user=p.email system="vpn-prod" level="access"
-DO iam.grant user=p.email system="slack" level="member"
-DO tickets.comment id=ticket.id text="Accès standards attribués."
-DO tickets.close id=ticket.id
+```dotenv
+OPENAI_API_KEY=
+AI_MODEL=
+AI_BASE_URL=https://api.openai.com/v1
 ```
 
-- **Trois instructions** : `SET`, `DO`, et `IF … ELSE … END`.
-- **`ticket`** est le ticket du test.
-- **Trois actions** : `iam.grant(user, system, level, expires?)`, `tickets.comment(id, text)`, `tickets.close(id)`. Une action inconnue est une erreur avant toute exécution.
-- **Systèmes et niveaux** : `github` (`none`, `read`, `write`), `vpn-prod` (`none`, `access`), `slack` (`none`, `guest`, `member`). `expires` est une date facultative.
-- **Expressions** : chemins (`p.email`), chaînes, `==`, `!=`, `not`, `and`, `or`, interpolation `{{p.name}}`. Pas d'`eval`.
-- **Compilation** : le texte est compilé en une liste d'instructions numérotées, avec des sauts pour `IF` et `ELSE`. L'état d'un test tient alors en `{pc, vars}`, et le pas à pas consiste à exécuter l'instruction `pc` puis à enregistrer le nouvel état.
+`AI_MODEL` doit désigner un modèle de votre compte acceptant Chat Completions et JSON Schema strict. Redémarrer le hub après changement de .env. Sans clé/modèle, la découverte et les tests fonctionnent ; l’interface indique que le diagnostic IA est non configuré et n’appelle aucun fournisseur.
 
-## 6. Les scénarios
+L’URL configurable permet aussi un fournisseur compatible ou local ; son support strict doit être vérifié, sans dégradation automatique vers une sortie libre. Documentation : [Structured Outputs OpenAI](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=chat).
 
-Un scénario, c'est un ticket d'entrée et les accès attendus à la fin.
+## Routes et vérification
 
-```json
-{
-  "title": "Prestataire externe, mission de 3 mois",
-  "origin": "Screenpipe · Bob · T-1182",
-  "ticket": {
-    "type": "access_request",
-    "requester": { "name": "Inès Fabre", "email": "ines.fabre@presta.example",
-                   "contract": "prestataire", "team": "data", "end_date": "2027-01-15" }
-  },
-  "expected": {
-    "github": "read", "vpn-prod": "none", "slack": "guest",
-    "expires_before": "2027-01-15", "ticket_status": "done"
-  },
-  "evidence": [
-    { "frame_id": 51234, "quote": "GitHub : Lecture seule" },
-    { "frame_id": 51234, "quote": "VPN production : Non" },
-    { "frame_id": 51190, "quote": "Mission de 3 mois en prestation : GitHub en lecture seule, pas de VPN prod" }
-  ]
-}
-```
-
-- **Deux origines.** Le scénario CDI d'Alice est écrit à la main dans le hub (JSON dans un champ texte). Ceux de Bob viennent du script.
-- **Comparaison.** Pour chaque système, l'accès obtenu doit égaler l'accès attendu, `none` voulant dire « aucun accès ». Avec `expires_before`, tous les accès du demandeur doivent expirer au plus tard à cette date. `ticket_status` est le statut final du ticket.
-- **Validation.** Le script ne pose la question qu'une fois par cas, et un cas refusé n'est jamais envoyé : le passé ne devient une référence que si Bob le confirme.
-
-## 7. Le script local d'analyse Screenpipe
-
-```
-$ bun run canary:analyze --hub https://memopipe-serv.onrender.com --automation attribuer-acces
-memopipe va lire ton historique Screenpipe, sur ce PC uniquement :
-  période  : 24 dernières heures
-  fenêtres : « Tickets Nimbus », « Console des permissions »
-Rien n'est envoyé sans ta confirmation. Continuer ? (o/n) o
-
-2 demandes d'accès retrouvées
-
-T-1182 · Inès Fabre · prestataire · fin le 15/01/2027
-  Accès enregistrés le 18/10 à 09:24 (screenpipe://frame/51234) :
-    GitHub : Lecture seule · VPN production : Non · Slack : Invité · Expiration : 15/01/2027
-  Commentaire du ticket : « Mission de 3 mois en prestation : GitHub en lecture seule, pas de VPN prod »
-  Ce comportement est-il le bon ? (o = valider, n = rejeter) o
-
-T-1175 · Hugo Petit · CDI · support
-  Accès enregistrés le 18/10 à 09:05 (screenpipe://frame/51102) :
-    GitHub : Écriture · VPN production : Oui · Slack : Membre
-  Ce comportement est-il le bon ? (o/n) o
-
-2 scénarios envoyés au hub.
-```
-
-**Comment il fonctionne**
-1. Il affiche le périmètre et attend un « o ». Rien n'est lu avant.
-2. Il interroge `GET /search?content_type=accessibility&window_name=Tickets%20Nimbus&start_time=24h%20ago&limit=20&offset=…` en paginant (offset incrémenté, arrêt sur page vide). Si le résultat est vide, il réessaie avec `content_type=ocr`.
-3. Il regroupe les résultats par n° de ticket, lu dans `window_name`, et lit les champs du ticket avec des expressions régulières (« Type de contrat : … », « Fin de mission : … », email, commentaires).
-4. Il fait la même chose pour la fenêtre `Console des permissions · <email>`. Pour chaque email, il garde la dernière frame qui contient « Modifications enregistrées », puis lit les lignes « Système : Niveau » et « Expiration : … ».
-5. Il affiche chaque cas avec ses citations et ses liens `screenpipe://frame/<id>`, puis demande la validation.
-6. Il envoie les cas validés à `POST /api/scenarios`, avec le jeton d'équipe `MEMOPIPE_TEAM_TOKEN`.
-
-**Options**
-- `--since 24h` : période d'analyse.
-- `--save fixtures/bob.json` : enregistre les réponses Screenpipe.
-- `--fixtures fixtures/bob.json` : rejoue des réponses enregistrées, en secours si la capture ne marche pas le jour J.
-
-Le script réutilise les garde-fous de `fetchLocalRecords` dans `src/core.ts` (adresse locale uniquement, authentification, timeout) et y ajoute la pagination.
-
-## 8. Le test pas à pas
-
-Sur la fiche de l'automatisation, chaque scénario a un bouton « Tester pas à pas ».
-
-1. Le hub crée dans l'app de démo une copie fraîche du ticket du scénario (`T-1182-R7` pour le test n° 7), avec un email dédié (`ines.fabre+r7@presta.example`). Les tests ne se mélangent donc pas.
-2. Chaque clic sur « Étape suivante » exécute une instruction sur l'app de démo et affiche son résultat. « Tout exécuter » va jusqu'au bout.
-3. À la fin, le hub lit les accès du demandeur dans la console et les compare aux attendus.
-
-```
-Test pas à pas · v1 · « Prestataire externe, mission de 3 mois »
-Ticket de test T-1182-R7 · Inès Fabre (prestataire, fin le 15/01/2027)
-
- ✓ 1  SET p = ticket.requester                 p = Inès Fabre · prestataire · data
- ✓ 2  DO iam.grant … github write              accès créé : GitHub = Écriture
- ✓ 3  DO iam.grant … vpn-prod access           accès créé : VPN production = Oui
- ▶ 4  DO iam.grant … slack member              [ Étape suivante ]  [ Tout exécuter ]
-   5  DO tickets.comment …
-   6  DO tickets.close …
-
-Résultat
-  GitHub           attendu : lecture             obtenu : écriture   ✗
-  VPN production   attendu : aucun               obtenu : oui        ✗
-  Slack            attendu : invité              obtenu : membre     ✗
-  Expiration       attendu : ≤ 15/01/2027        obtenu : aucune     ✗
-  Ticket           attendu : terminé             obtenu : terminé    ✓
-  [ Voir dans la console des permissions ]
-```
-
-Le bouton « Voir dans la console » ouvre la vraie page de la console pour le demandeur du test. Les effets sont visibles pour de vrai.
-
-## 9. Contributions et versions
-
-1. Sur la fiche, **« Modifier une copie »** ouvre un éditeur (un champ texte) prérempli avec la version courante.
-2. **« Tout tester »** exécute tous les scénarios sur la copie, d'un coup, et affiche le tableau v1 contre copie.
-3. **« Proposer »** demande une raison, puis crée la contribution.
-4. La page de la contribution montre le diff ligne par ligne (paquet npm `diff`), la raison, le tableau des résultats et les commentaires.
-5. **« Approuver »** n'apparaît que pour Alice. Le bouton reste grisé tant qu'un scénario échoue sur la copie. L'approbation crée la v2 et en fait la version courante.
-
-La copie de Bob :
-
-```
-SET p = ticket.requester
-IF p.contract == "prestataire"
-  DO iam.grant user=p.email system="github" level="read" expires=p.end_date
-  DO iam.grant user=p.email system="slack" level="guest" expires=p.end_date
-ELSE
-  DO iam.grant user=p.email system="github" level="write"
-  DO iam.grant user=p.email system="vpn-prod" level="access"
-  DO iam.grant user=p.email system="slack" level="member"
-END
-DO tickets.comment id=ticket.id text="Accès attribués ({{p.contract}})."
-DO tickets.close id=ticket.id
-```
-
-```
-Tests                                v1       copie de Bob
-CDI développement (Alice)            ✓        ✓
-T-1175 · CDI support (Bob)           ✓        ✓
-T-1182 · Prestataire, 3 mois (Bob)   ✗ 4      ✓
-                                     2/3      3/3
-```
-
-## 10. Données
-
-| Table | Colonnes |
+| Route | Fonction |
 |---|---|
-| `automations` | `id`, `title`, `usage`, `owner`, `current_version` |
-| `versions` | `id`, `automation_id`, `number`, `dsl`, `author`, `created_at` |
-| `scenarios` | `id`, `automation_id`, `title`, `origin`, `ticket` (jsonb), `expected` (jsonb), `evidence` (jsonb) |
-| `drafts` | `id`, `automation_id`, `base_version`, `author`, `dsl`, `reason`, `status` (`draft`, `proposed`, `approved`) |
-| `comments` | `id`, `draft_id`, `author`, `body`, `created_at` |
-| `runs` | `id`, `dsl`, `scenario_id`, `test_ticket`, `pc`, `vars` (jsonb), `steps` (jsonb), `status`, `result` (jsonb) |
-| `tickets` | `id`, `type`, `status`, `requester` (jsonb), `comments` (jsonb) |
-| `grants` | `email`, `system`, `level`, `expires` |
+| /, /a/new, /a/slug | Catalogue, publication DSL et versions |
+| /decouvrir, /decouvrir/id | Consentement Screenpipe, recommandations, preuves et validation des cas |
+| /runs/id | Exécution, comparaison, aperçu et diagnostic IA explicite |
+| /d/id | Copie éditable, régressions, traçabilité et proposition |
+| /c/id | Revue, discussion et décision du propriétaire |
+| /equipe | Agent et préparation de démonstration |
+| /demo/tickets, /demo/console/email | Terrain de travail Nimbus observé par Screenpipe |
+| /api/agent/*, /api/discoveries, /api/scenarios | Échanges avec l’agent et les CLI locaux |
 
-Une contribution est simplement un `draft` dont le statut est `proposed`.
+Le schéma est ajouté sans réinitialisation nécessaire. Les tables métier, découvertes et agents sont complétées par `ai_analyses` et `audit_events`.
 
-| Route | Rôle |
-|---|---|
-| `GET /api/scenarios` | Liste les automatisations (slug, titre, version) : le script vérifie que la sienne existe |
-| `POST /api/scenarios` | Reçoit un scénario validé du script (jeton d'équipe si `MEMOPIPE_TEAM_TOKEN` est défini) |
-| `POST /api/demo/reset` | `{"scope": "demo"}` remet tickets et accès à zéro ; `{"scope": "all"}` repart du catalogue avec la v1 d'Alice |
+```powershell
+bun run test
+bun run build
+bun run check:workflow
+```
 
-Tout le reste (tests pas à pas, « Tout tester », publier, modifier, proposer, commenter, approuver, formulaires de l'app de démo) passe par des server actions Next.js (`app/(hub)/actions.ts`, `app/demo/actions.ts`).
+`check:workflow` lance un vrai serveur Next, le CLI local et les formulaires HTTP sur une base mémoire. **Son fournisseur IA HTTP est simulé**, avec des données fictives. Il ne valide pas la qualité d’un modèle OpenAI réel et ne lit pas l’historique Screenpipe du PC. Les autres tests couvrent consentements, sorties invalides, références, cibles interdites, versions obsolètes et invalidation des tests après édition.
 
-## 11. Plan de 12 h
+Pour vérifier sans écraser le dossier d’un next dev actif :
 
-| # | Bloc | Durée | Qui | État |
-|---|---|---|---|---|
-| 1 | Projet Next.js, base Postgres, « Je suis Alice / Bob », déploiement | 1 h | B | Fait (Render + Prisma Postgres) |
-| 2 | App de démo : tickets, console, données de départ, reset | 2 h | B | Fait |
-| 3 | Relancer Screenpipe, vérifier la capture, puis Bob traite T-1175 et T-1182 dans l'app (avec `--save`) | 45 min | A, dès la fin du bloc 2 | À faire |
-| 4 | DSL : parser, expressions, compilation en instructions | 1 h 30 | A | Fait (dans `memopipe-serv`) |
-| 5 | Test pas à pas : runner et comparaison (A), page de test (B) | 2 h | A et B | Fait |
-| 6 | Catalogue, fiche, publication, scénario écrit à la main | 1 h | B | Fait |
-| 7 | Script `canary:analyze` | 2 h | A | À faire |
-| 8 | Copie de travail, « Tout tester », contribution, diff, approbation, v2 | 1 h 30 | B (pages), A (« Tout tester ») | Fait |
-| 9 | Répétition de la démo, vidéo de secours | 45 min | A et B | À faire |
+```powershell
+$env:MEMOPIPE_DIST_DIR='.next-check'
+bun run build
+bun run check:workflow
+```
 
-A = moteur et Screenpipe, B = site (section 3). Environ 12 h 30 de travail, soit 6 à 7 h de temps réel à deux. Seul, c'est juste : sacrifier d'abord le bloc 6 (versions et scénario d'Alice créés par un script de données de départ).
+## Track 3
 
-**Deux rendez-vous**
-- **Vers H+3 : B déploie l'app de démo**, même sans style. C'est la dépendance critique : sans elle, A ne peut ni enregistrer l'historique de Bob (bloc 3) ni tester son script sur de vraies captures. En attendant, A code le moteur.
-- **Vers H+6 : intégration.** B branche le runner dans la page de test, et le script de A envoie ses scénarios au hub déployé. Ensuite, répétition de la démo à deux.
+La démonstration rend une procédure personnelle utilisable par une autre personne, avec validation des références, configuration, tests, revue et version commune. L’IA aide au diagnostic ; elle ne reçoit pas l’autorité de publier.
 
-> **Règle.** On ne touche à aucun bonus tant que les 8 étapes de la section 1 ne tournent pas de bout en bout.
-
-**Tests indispensables** (`bun test`)
-1. Le parser refuse une action inconnue et un `IF` sans `END`.
-2. `IF` et `ELSE` se compilent avec les bons sauts.
-3. La v1 sur le scénario « prestataire » donne exactement 4 écarts.
-4. La copie de Bob donne 0 écart sur les 3 scénarios.
-5. Sur les fixtures enregistrées, le script retrouve T-1175 et T-1182 avec le bon contrat, la bonne date de fin et les bons accès.
-
-## 12. Bonus, dans l'ordre, si le temps le permet
-
-1. **Suggestion de correction par l'IA** : à partir du rapport et du DSL, l'IA propose le bloc `IF`, et Bob l'insère dans l'éditeur.
-2. **Un cas rejeté** dans la démo : T-1188, une erreur passée de Bob, refusée dans le terminal.
-3. **Notification Screenpipe** « v2 disponible » sur le PC de Bob (`POST localhost:11435/notify`).
-4. **Exécution réelle de la v2** sur le nouveau ticket T-1201.
-
-## 13. Démo de 2 minutes
-
-| Temps | Écran | Message |
-|---|---|---|
-| 0:00 | Catalogue, en tant qu'Alice | « Alice a publié son automatisation, testée sur son cas : 1/1. » |
-| 0:10 | Passage en Bob | « Bob veut la réutiliser. Marchera-t-elle pour ses cas ? » |
-| 0:20 | Terminal : `canary:analyze` | Consentement, 2 tickets retrouvés dans le vrai historique Screenpipe de Bob ; on ouvre une frame ; Bob valide |
-| 0:45 | Fiche, test pas à pas de T-1182 | Les accès apparaissent un par un : 4 écarts, dont le VPN de production. On ouvre la console. |
-| 1:10 | Copie de travail, `IF` ajouté, « Tout tester » | 3/3 : le cas d'Alice passe toujours |
-| 1:25 | « Proposer » | Diff, raison, tableau v1 contre copie |
-| 1:35 | Passage en Alice | Un commentaire, puis « Approuver » : v2 |
-| 1:50 | Catalogue | « L'automatisation d'Alice a appris de l'expérience de Bob. » |
-
-Si la capture Screenpipe ne marche pas le jour J, le script rejoue les fixtures enregistrées au bloc 3, et on le dit.
-
-## 14. À vérifier tout de suite
-
-1. **Screenpipe ne capture toujours pas l'écran** (`/health` : `frame_status: not_started`, `ui_recorder.running: false`). Il a coupé la capture quand le disque est passé sous 5 Gio, et ne l'a pas relancée. Il faut le quitter et le relancer, puis vérifier `/health`.
-2. **Le titre de la page arrive dans `window_name`**, et le texte « GitHub : Lecture seule » dans les résultats `accessibility`. À tester dès que la console de démo est en ligne.
-3. **Le déploiement Render + Prisma Postgres répond.** Plan B : `next dev` sur un seul PC, avec Alice et Bob comme deux identités.
+Références : [annonce et tracks](https://luma.com/bnre6nou), [exemples Track 3](https://github.com/screenpipe/hackathon-starter/blob/main/docs/track-3-examples.md), [guide de soumission](https://github.com/screenpipe/hackathon-starter/blob/main/docs/submission.md). Les exemples du starter sont des pistes d’implémentation, pas une liste exhaustive de règles obligatoires du jury.

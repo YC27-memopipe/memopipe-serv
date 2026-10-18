@@ -18,7 +18,7 @@ export default async function TicketsPage() {
           <tbody>
             {tickets.map((t) => (
               <tr key={t.id}>
-                <td><Link href={`/demo/tickets/${t.id}`}><b>{t.id}</b></Link></td>
+                <td><Link href={`/nimbus/tickets/${t.id}`}><b>{t.id}</b></Link></td>
                 <td>{t.requester.name}<div className="tiny muted">{t.requester.email}</div></td>
                 <td>{CONTRACTS[t.requester.contract] ?? t.requester.contract}</td>
                 <td>{t.requester.team ?? "—"}</td>

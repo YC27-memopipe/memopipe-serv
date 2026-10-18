@@ -1,63 +1,37 @@
 "use client";
-
 import { useActionState } from "react";
 import { addScenarioAction, publishAction, type FormState } from "@/app/(hub)/actions";
+import { CONTRACTS, SYSTEM_IDS, SYSTEMS } from "@/lib/labels";
 
-export function PublishForm({ template }: { template: string }) {
-  const [state, action, pending] = useActionState(publishAction, {} as FormState);
-  return (
-    <form action={action}>
-      {state.error && <p className="notice ko" role="alert">{state.error}</p>}
-      <div className="split even" style={{ marginTop: 16 }}>
-        <div>
-          <label className="field">
-            <span>Titre</span>
-            <input type="text" name="title" defaultValue={state.values?.title ?? ""} placeholder="Attribuer les accès d'un nouvel arrivant" />
-          </label>
-          <label className="field">
-            <span>Conditions d'utilisation</span>
-            <textarea name="usage" defaultValue={state.values?.usage ?? ""} placeholder="Dans quels cas l'utiliser, ce qu'elle fait, ses limites connues." />
-          </label>
-          <div className="notice small">
-            <b>Instructions :</b> <span className="mono">SET</span>, <span className="mono">DO</span>, <span className="mono">IF … ELSE … END</span>.
-            <br />
-            <b>Actions :</b> <span className="mono">iam.grant</span> (user, system, level, expires), <span className="mono">tickets.comment</span> (id, text),{" "}
-            <span className="mono">tickets.close</span> (id).
-            <br />
-            <b>Gmail réel, via Screenpipe :</b> <span className="mono">gmail.search</span> (query, limit) <span className="mono">-&gt; mails</span>,{" "}
-            <span className="mono">gmail.send</span> (to, subject, body).
-            <br />
-            <b>Systèmes :</b> github (none, read, write), vpn-prod (none, access), slack (none, guest, member).
-            <br />
-            <span className="mono">ticket</span> désigne le ticket traité. Conditions : <span className="mono">==</span>, <span className="mono">!=</span>,{" "}
-            <span className="mono">contains</span>, <span className="mono">not</span>, <span className="mono">and</span>, <span className="mono">or</span>.
-          </div>
-        </div>
-        <label className="field">
-          <span>Automatisation</span>
-          <textarea className="dsl" name="dsl" defaultValue={state.values?.dsl ?? template} spellCheck={false} />
-        </label>
-      </div>
-      <div className="row end">
-        <button className="btn" type="submit" disabled={pending}>{pending ? "Publication…" : "Publier la v1"}</button>
-      </div>
-    </form>
-  );
+function PermissionFields({ values }: { values?: Record<string, string> }) {
+  return <div className="perm">{SYSTEM_IDS.map(system => <label className="field" key={system}><span>{SYSTEMS[system].label}</span><select name={system} defaultValue={values?.[system] ?? "none"}>{Object.entries(SYSTEMS[system].levels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>)}</div>;
 }
 
-export function ScenarioForm({ slug, example }: { slug: string; example: string }) {
+export function PublishForm() {
+  const [state, action, pending] = useActionState(publishAction, {} as FormState);
+  return <form action={action}>
+    {state.error && <p className="notice ko" role="alert">{state.error}</p>}
+    <label className="field"><span>Nom de la procédure</span><input name="title" required maxLength={160} defaultValue={state.values?.title ?? ""} placeholder="Attribuer les accès d’un nouvel arrivant" /></label>
+    <label className="field"><span>Quand faut-il l’utiliser ?</span><textarea name="usage" required defaultValue={state.values?.usage ?? ""} placeholder="Pour les demandes approuvées des nouveaux arrivants de l’équipe…" /></label>
+    <section className="block"><h2>Les droits à attribuer</h2><p className="plain">Cette procédure gère les accès d’une personne à partir de sa demande. Choisissez les droits à lui accorder.</p><PermissionFields values={state.values} />
+    <label className="consent"><input type="checkbox" name="temporary" value="yes" defaultChecked={state.values?.temporary === "yes"} /> Limiter ces droits à la fin de mission renseignée dans la demande.</label>
+    <p className="plain">Une note sera ajoutée et la demande sera marquée comme terminée après l’attribution des droits.</p></section>
+    <div className="row end"><button className="btn" type="submit" disabled={pending}>{pending ? "Publication…" : "Partager la procédure"}</button></div>
+  </form>;
+}
+
+export function ScenarioForm({ slug }: { slug: string }) {
   const [state, action, pending] = useActionState(addScenarioAction.bind(null, slug), {} as FormState);
-  return (
-    <form action={action}>
-      {state.error && <p className="notice ko" role="alert">{state.error}</p>}
-      <label className="field">
-        <span>Scénario (JSON)</span>
-        <textarea className="json" name="json" defaultValue={state.values?.json ?? example} spellCheck={false} />
-      </label>
-      <div className="row between">
-        <span className="tiny muted">Les scénarios issus de Screenpipe arrivent tout seuls, envoyés par le script canary:analyze.</span>
-        <button className="btn sm" type="submit" disabled={pending}>{pending ? "Ajout…" : "Ajouter le scénario"}</button>
-      </div>
-    </form>
-  );
+  const value = (name: string) => state.values?.[name] ?? "";
+  return <form action={action}>
+    {state.error && <p className="notice ko" role="alert">{state.error}</p>}
+    <label className="field"><span>Nom de la situation</span><input name="title" required defaultValue={value("title")} placeholder="Prestataire avec une mission de trois mois" /></label>
+    <div className="split even"><label className="field"><span>Nom du demandeur</span><input name="name" required defaultValue={value("name")} /></label><label className="field"><span>Adresse professionnelle</span><input name="email" type="email" required defaultValue={value("email")} /></label></div>
+    <div className="split even"><label className="field"><span>Type de contrat</span><select name="contract" defaultValue={value("contract") || "cdi"}>{Object.entries(CONTRACTS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label><label className="field"><span>Équipe</span><input name="team" defaultValue={value("team")} /></label></div>
+    <label className="field"><span>Fin de mission, si applicable</span><input type="date" name="end_date" defaultValue={value("end_date")} /></label>
+    <h3>Résultat attendu</h3><PermissionFields values={state.values} />
+    <label className="field"><span>Date limite des accès, si nécessaire</span><input type="date" name="expires" defaultValue={value("expires")} /></label>
+    <p className="tiny muted">Cette situation sera ajoutée aux vérifications de la procédure. La demande devra être terminée après son exécution.</p>
+    <button className="btn" type="submit" disabled={pending}>{pending ? "Ajout…" : "Ajouter cette situation"}</button>
+  </form>;
 }

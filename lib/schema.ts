@@ -1,4 +1,37 @@
 // Schéma Postgres, identique en production (Prisma Postgres ou tout autre Postgres) et sur PGlite (local).
+export const DEMO_SESSION_SCHEMA = `create table if not exists demo_session (
+  id integer primary key,
+  started_at timestamptz not null
+)`;
+
+export const AI_SCHEMA = `
+create table if not exists ai_analyses (
+  id serial primary key,
+  run_id integer not null references runs(id) on delete cascade,
+  actor text not null,
+  fingerprint text not null,
+  provider text not null,
+  model text not null,
+  prompt_version text not null,
+  request jsonb not null,
+  response jsonb,
+  checks jsonb,
+  status text not null default 'pending',
+  error text,
+  draft_id integer references drafts(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create table if not exists audit_events (
+  id serial primary key,
+  actor text not null,
+  event text not null,
+  entity text not null,
+  details jsonb not null,
+  created_at timestamptz not null default now()
+);
+create unique index if not exists ai_one_pending on ai_analyses (run_id, actor) where status = 'pending';
+`;
+
 export const SCHEMA = `
 create table if not exists automations (
   id serial primary key,
@@ -102,9 +135,34 @@ create table if not exists agent_status (
   id integer primary key,
   label text not null,
   last_seen timestamptz not null
-)
+);
+create table if not exists discoveries (
+  id serial primary key,
+  author text not null,
+  start_time text not null,
+  end_time text not null,
+  status text not null default 'pending',
+  job_id integer references agent_jobs(id) on delete set null,
+  catalog jsonb not null,
+  report jsonb,
+  recommendations jsonb,
+  error text,
+  created_at timestamptz not null default now()
+);
+create table if not exists discovery_selections (
+  discovery_id integer not null references discoveries(id) on delete cascade,
+  automation_id integer not null references automations(id) on delete cascade,
+  case_index integer not null,
+  scenario_id integer references scenarios(id) on delete set null,
+  run_id integer references runs(id) on delete set null,
+  primary key (discovery_id, automation_id, case_index)
+);
+${DEMO_SESSION_SCHEMA};
+${AI_SCHEMA}
 `;
 
 export const TABLES = [
+  "demo_session", "ai_analyses", "audit_events",
+  "discovery_selections", "discoveries",
   "comments", "runs", "drafts", "scenarios", "versions", "automations", "grants", "console_saves", "tickets", "agent_jobs", "agent_status",
 ];

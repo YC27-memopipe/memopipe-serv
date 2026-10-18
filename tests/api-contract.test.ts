@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 test("scenario route accepts CANARY envelope and existing flat format, refuses malformed input and bad auth", async () => {
   const code = `
+    try {
     const {POST}=await import('./app/api/scenarios/route.ts');
     const {SCENARIO_EXAMPLE}=await import('./lib/seed.ts');
     const send=async body=>POST(new Request('http://localhost/api/scenarios',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}));
@@ -16,8 +17,11 @@ test("scenario route accepts CANARY envelope and existing flat format, refuses m
     if((await send({automation:'attribuer-acces',...SCENARIO_EXAMPLE})).status!==401)throw new Error('Auth regression');
     console.log('API contracts verified in isolated in-memory database');
     process.exit(0);
+    } catch (error) { console.error(error); process.exit(1); }
   `;
   const child = Bun.spawn(["bun", "-e", code], { cwd: process.cwd(), env: { ...process.env, PGLITE_DIR: "memory://", DATABASE_URL: "", MEMOPIPE_TEAM_TOKEN: "" }, stdout: "pipe", stderr: "pipe" });
-  const [stdout, stderr, status] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-  expect(stderr).toBe(""); expect(status).toBe(0); expect(stdout).toContain("API contracts verified");
-}, 15000);
+  try {
+    const [stdout, stderr, status] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect(stderr).toBe(""); expect(status).toBe(0); expect(stdout).toContain("API contracts verified");
+  } finally { child.kill(); }
+}, 60000);

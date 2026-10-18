@@ -2,7 +2,7 @@ import Link from "next/link";
 import { listAutomations, listContributions, userName } from "@/lib/data";
 import { currentUser } from "@/lib/session";
 
-export const metadata = { title: "Contributions" };
+export const metadata = { title: "Améliorations à valider" };
 
 const STATUS = {
   proposed: { label: "En attente", cls: "wait" },
@@ -20,12 +20,12 @@ export default async function ContributionsPage() {
   return (
     <>
       <div className="head">
-        <h1>Contributions</h1>
-        <p className="meta">Les améliorations proposées par l'équipe. Le propriétaire de l'automatisation décide.</p>
+        <h1>Les améliorations de l’équipe</h1>
+        <p className="meta">Examinez les changements proposés et leurs résultats avant de les partager avec toute l’équipe.</p>
       </div>
 
       {sorted.length === 0 ? (
-        <p className="empty">Aucune contribution pour l'instant.</p>
+        <p className="empty">Aucune modification en attente pour le moment.</p>
       ) : (
         <div className="list">
           {sorted.map((c) => {

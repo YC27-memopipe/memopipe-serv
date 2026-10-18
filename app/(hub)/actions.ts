@@ -5,10 +5,13 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import * as data from "@/lib/data";
 import { currentUser, DEMO_COOKIE, SWITCH_COOKIE, USER_COOKIE } from "@/lib/session";
+import { acceptRecommendation, requestDiscovery } from "@/lib/discoveries";
+import { applyDiagnosis, requestDiagnosis } from "@/lib/ai-diagnosis";
+import { editWorkflow, friendlyError, workflowFromForm } from "@/lib/business-workflow";
+import { fingerprint } from "@/lib/audit";
 
 function message(e: unknown) {
-  if (e instanceof data.UserError) return e.message;
-  return e instanceof Error ? `Erreur inattendue : ${e.message}` : String(e);
+  return friendlyError(e instanceof Error ? e.message : "Une erreur est survenue. Réessayez dans un instant.");
 }
 
 function to(path: string, params: Record<string, string> = {}, hash = "") {
@@ -22,6 +25,39 @@ function fail(path: string, e: unknown, hash = ""): never {
 
 const str = (fd: FormData, key: string) => String(fd.get(key) ?? "");
 const num = (fd: FormData, key: string) => Number(fd.get(key));
+
+export async function discoverAction(fd: FormData) {
+  let id: number;
+  try { id = (await requestDiscovery(await currentUser(), str(fd, "since"), str(fd, "consent") === "yes")).id; }
+  catch (e) { fail("/decouvrir", e); }
+  redirect(`/decouvrir/${id}`);
+}
+
+export async function acceptRecommendationAction(fd: FormData) {
+  const id = num(fd, "discovery");
+  let run: number;
+  try { run = await acceptRecommendation(id, str(fd, "slug"), num(fd, "case"), await currentUser(), str(fd, "confirmed") === "yes"); }
+  catch (e) { fail(`/decouvrir/${id}`, e); }
+  revalidatePath("/", "layout");
+  redirect(`/runs/${run}`);
+}
+
+export async function diagnoseAction(fd: FormData) {
+  const id = num(fd, "run");
+  try { await requestDiagnosis(id, await currentUser(), str(fd, "consent") === "yes", str(fd, "context_hash")); }
+  catch (e) { fail(`/runs/${id}`, e); }
+  revalidatePath(`/runs/${id}`);
+  redirect(`/runs/${id}#diagnostic-ia`);
+}
+
+export async function applyAdaptationAction(fd: FormData) {
+  const id = num(fd, "run");
+  let draft: number;
+  try { draft = (await applyDiagnosis(num(fd, "analysis"), await currentUser(), str(fd, "reviewed") === "yes")).id; }
+  catch (e) { fail(`/runs/${id}`, e); }
+  revalidatePath("/", "layout");
+  redirect(`/d/${draft}?ok=${encodeURIComponent("Proposition appliquée et testée. Vous pouvez la modifier avant de la proposer à son propriétaire.")}`);
+}
 
 // ---------- Identité ----------
 
@@ -75,9 +111,10 @@ export async function toggleDemoAction(fd: FormData) {
 export type FormState = { error?: string; values?: Record<string, string> };
 
 export async function publishAction(_: FormState, fd: FormData): Promise<FormState> {
-  const values = { title: str(fd, "title"), usage: str(fd, "usage"), dsl: str(fd, "dsl") };
+  const values = { title: str(fd, "title"), usage: str(fd, "usage"), dsl: str(fd, "dsl"), github: str(fd, "github"), "vpn-prod": str(fd, "vpn-prod"), slack: str(fd, "slack"), temporary: str(fd, "temporary") };
   let slug: string;
   try {
+    values.dsl ||= workflowFromForm(fd);
     slug = (await data.publishAutomation(values, await currentUser())).slug;
   } catch (e) {
     return { error: message(e), values };
@@ -91,13 +128,17 @@ export async function addScenarioAction(slug: string, _: FormState, fd: FormData
   try {
     let parsed: unknown;
     try {
-      parsed = JSON.parse(json);
+      parsed = json ? JSON.parse(json) : {
+        title: str(fd, "title"), origin: "Saisie manuelle",
+        ticket: { type: "access_request", requester: { name: str(fd, "name"), email: str(fd, "email"), contract: str(fd, "contract"), team: str(fd, "team"), ...(str(fd, "end_date") ? { end_date: str(fd, "end_date") } : {}) } },
+        expected: { github: str(fd, "github"), "vpn-prod": str(fd, "vpn-prod"), slack: str(fd, "slack"), ticket_status: "done", ...(str(fd, "expires") ? { expires_before: str(fd, "expires") } : {}) }, evidence: [],
+      };
     } catch {
       throw new data.UserError("Le JSON n'est pas valide.");
     }
     await data.addScenario(slug, parsed, await currentUser());
   } catch (e) {
-    return { error: message(e), values: { json } };
+    return { error: message(e), values: Object.fromEntries([...fd.entries()].filter(([, value]) => typeof value === "string").map(([key, value]) => [key, String(value)])) };
   }
   revalidatePath(`/a/${slug}`);
   redirect(to(`/a/${slug}`, { ok: "Scénario ajouté à la suite de tests." }, "#scenarios"));
@@ -130,10 +171,12 @@ export async function startRunAction(fd: FormData) {
     if (draftId) {
       const d = await data.getDraft(draftId);
       if (!d) throw new data.UserError("Copie introuvable.");
+      if (d.automation.id !== a.automation.id) throw new data.UserError("Cette modification appartient à une autre procédure.");
       dsl = d.draft.dsl;
       source = `copie #${draftId}`;
     }
     runId = (await data.startRun({ automationId: a.automation.id, scenarioId: num(fd, "scenario"), dsl, source, user })).id;
+    await data.finishRun(runId);
   } catch (e) {
     fail(back, e);
   }
@@ -174,6 +217,7 @@ export async function rerunAction(fd: FormData) {
       source: r.run.source,
       user: await currentUser(),
     })).id;
+    await data.finishRun(next);
   } catch (e) {
     fail(`/runs/${id}`, e);
   }
@@ -193,6 +237,29 @@ export async function testVersionAction(fd: FormData) {
 }
 
 // ---------- Copies de travail et contributions ----------
+
+async function saveBusinessDraft(fd: FormData) {
+  const id = num(fd, "draft"), user = await currentUser();
+  const d = await data.getDraft(id);
+  if (!d || d.draft.author !== user) throw new data.UserError("Vous ne pouvez pas modifier cette procédure.");
+  if (fingerprint(d.draft.dsl) !== str(fd, "revision")) throw new data.UserError("Cette procédure a changé. Rechargez la page avant de modifier ses règles.");
+  await data.saveDraft(id, editWorkflow(d.draft.dsl, fd), user);
+  return { id, user };
+}
+
+export async function saveBusinessDraftAction(fd: FormData) {
+  const id = num(fd, "draft");
+  try { await saveBusinessDraft(fd); } catch (e) { fail(`/d/${id}`, e); }
+  revalidatePath(`/d/${id}`);
+  redirect(to(`/d/${id}`, { ok: "Vos règles sont enregistrées. Vérifiez-les avant de proposer la modification." }));
+}
+
+export async function testBusinessDraftAction(fd: FormData) {
+  const id = num(fd, "draft");
+  try { const saved = await saveBusinessDraft(fd); await data.testDraft(id, saved.user); } catch (e) { fail(`/d/${id}`, e); }
+  revalidatePath(`/d/${id}`);
+  redirect(to(`/d/${id}`, {}, "#tests"));
+}
 
 export async function createDraftAction(fd: FormData) {
   const slug = str(fd, "slug");

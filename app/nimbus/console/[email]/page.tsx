@@ -24,7 +24,7 @@ export default async function ConsolePage({ params, searchParams }: Props) {
 
   return (
     <>
-      <Link className="back" href={c.ticketId ? `/demo/tickets/${c.ticketId}` : "/demo/tickets"}>← {c.ticketId ?? "Tickets"}</Link>
+      <Link className="back" href={c.ticketId ? `/nimbus/tickets/${c.ticketId}` : "/nimbus/tickets"}>← {c.ticketId ?? "Tickets"}</Link>
       <h1>Console des permissions</h1>
       <p className="muted" style={{ marginTop: -6, marginBottom: 24 }}>
         {c.person ? `${c.person.name} · ${CONTRACTS[c.person.contract] ?? c.person.contract} · ` : ""}{email}

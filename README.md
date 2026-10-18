@@ -2,6 +2,25 @@
 
 Une équipe partage ses automatisations. Avant d'en réutiliser une, chacun la teste sur les cas réels de son historique Screenpipe, voit le résultat de chaque étape, la corrige et propose sa correction. Le propriétaire approuve, et la nouvelle version profite à tout le monde.
 
+## Découverte à partir de Screenpipe
+
+L’interface est conçue pour des utilisateurs métier : **Catalogue → Mes recommandations → Essayer une situation → Adapter les règles → Faire valider**. Les procédures, cas de référence et modifications se renseignent avec des formulaires. Le code, les commandes et les réglages d’intégration restent dans la documentation technique. Les réinitialisations et le guidage de démonstration ne sont plus exposés dans l’application.
+
+Nimbus est accessible sous `/nimbus/tickets`. Les anciennes adresses `/demo/*` redirigent vers `/nimbus/*`. Les imports synthétiques restent signalés comme **Données d’exemple** ; leurs citations ne sont pas présentées comme des captures réelles. Les droits de validation et les consentements sont conservés.
+
+Le catalogue propose **« Trouver une procédure pour moi »** (`/decouvrir`). Bob autorise une lecture bornée de son historique local, puis le hub rapproche les cas Nimbus retrouvés du code des procédures publiées, sans choisir d’automatisation au départ et sans utiliser l’historique d’Alice.
+
+1. Définir `MEMOPIPE_TEAM_TOKEN` dans le hub.
+2. Dans `memopipe-local/.env`, définir `SCREENPIPE_LOCAL_API_KEY`, `CANARY_HUB_URL`, `CANARY_TEAM_TOKEN` (même secret) et `CANARY_AUTHOR=Bob`.
+3. Lancer `bun run canary:agent` sur le PC de Bob. Gmail n’est pas requis.
+4. Traiter des tickets dans `/nimbus/tickets` avec Screenpipe actif, enregistrer leurs permissions, puis ouvrir `/decouvrir` dans le hub en tant que Bob.
+5. Autoriser l’analyse Screenpipe, examiner les recommandations et confirmer les références à tester. Après un échec, examiner le contexte minimisé et consentir séparément à son envoi à OpenAI. Le modèle explique les différences et peut proposer du DSL ; le serveur valide et teste cette proposition.
+6. La copie est testée sur tous les cas validés, puis proposée à Alice. L’approbation publie une version commune de la même procédure.
+
+Alternative terminal : `bun run canary:discover --since 24h` dans le dépôt local. `--fixtures fixtures/bob.json` rejoue une **démo fictive**, annoncée comme telle.
+
+Le rapprochement est spécialisé Nimbus. Le diagnostic et la correction passent par une vraie API IA ; aucune explication par règles ne la remplace. Voir [ARCHITECTURE.md](ARCHITECTURE.md) pour les contrats, limites et commandes complètes.
+
 Ce dépôt contient le hub (catalogue, tests pas à pas, copies de travail, contributions, versions), l'app de démo fictive « Nimbus IT » (tickets et console des permissions) et le moteur des automatisations. Le détail est dans [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Lancer en local
@@ -18,6 +37,7 @@ Sans `DATABASE_URL`, le hub utilise PGlite, un vrai Postgres embarqué stocké d
 ```sh
 bun run test       # moteur + parcours complet sur un Postgres en mémoire
 bun run build      # compilation de production (vérifie aussi les types)
+bun run check:workflow  # après build : vrai CLI + serveur HTTP + formulaires, fixtures et base en mémoire
 ```
 
 ## Déployer sur Render
@@ -26,24 +46,25 @@ bun run build      # compilation de production (vérifie aussi les types)
 2. Dans l'onglet Environment, définir `DATABASE_URL` avec la chaîne de connexion d'une base Postgres (Prisma Postgres, Neon ou Render). Les tables et les données de démo sont créées au premier appel. Sans cette variable, le hub refuse de démarrer : PGlite, le Postgres embarqué prévu pour le local, dépasse les 512 Mo de mémoire de l'offre gratuite.
 3. Optionnel : définir `MEMOPIPE_TEAM_TOKEN`. Le script `canary:analyze` devra alors l'envoyer dans `Authorization: Bearer <jeton>`.
 
-## Gmail réel : l'agent local
+## Brancher le diagnostic OpenAI
 
-Les actions `iam.*` et `tickets.*` agissent sur l'app de démo. Les actions `gmail.*` sont réelles et passent par Screenpipe :
+Ajouter dans `memopipe-serv/.env` puis redémarrer le hub :
 
-| Action | Ce qu'elle fait | Par où |
-|---|---|---|
-| `DO gmail.search query="…" limit="5" -> mails` | Cherche dans la boîte de réception ; `mails.count`, `mails.first.subject`, `mails.first.from`, `mails.first.snippet` | Connexion IMAP de Screenpipe |
-| `DO gmail.send to=… subject="…" body="…"` | Envoie un email depuis Gmail | Navigateur piloté par Screenpipe (rédaction préremplie, clic sur « Envoyer ») |
+```dotenv
+OPENAI_API_KEY=
+AI_MODEL=
+AI_BASE_URL=https://api.openai.com/v1
+```
 
-Le hub (Render) ne peut pas joindre Screenpipe, qui tourne sur `localhost`. Il met donc ces actions en file d'attente (table `agent_jobs`). L'agent local du dépôt **memopipe-local**, lancé sur le PC qui a Screenpipe, vient les chercher, les exécute et renvoie le résultat. La page de test pas à pas l'affiche comme les autres étapes.
+La clé reste sur le serveur. `AI_MODEL` doit être un modèle de votre compte supportant Chat Completions et JSON Schema strict. Sans clé/modèle, l’écran explique que l’IA n’est pas configurée. La découverte Screenpipe, les tests et la modification manuelle fonctionnent.
 
-Côté hub, deux routes, protégées par `MEMOPIPE_TEAM_TOKEN` :
-- `GET /api/agent/next` : l'agent signale sa présence et prend la plus ancienne action en attente (`{ job: { id, action, args } | null }`).
-- `POST /api/agent/jobs/<id>` : l'agent renvoie `{ ok: true, result }` ou `{ ok: false, error }`.
+Sur un run en échec : **Examiner le contexte envoyé à l’IA** → cocher l’autorisation → **Demander le diagnostic IA** → examiner explication, hypothèses et diff → confirmer la revue → **Accepter dans une copie et tester tous les cas**. La copie reste éditable avant proposition à Alice.
 
-Si aucun agent ne répond en 60 s, l'étape échoue avec un message qui dit de lancer l'agent. La barre du haut affiche « Gmail · agent en ligne » ou « hors ligne ».
+Les entrées/sorties sont versionnées. Les références inventées et actions non autorisées sont refusées. Les tests n’autorisent que les actions Nimbus sur le ticket et le demandeur dédiés au run ; Gmail est bloqué, même dans une branche inactive. Les anciens connecteurs Gmail restent présents dans l’agent local, hors de ce parcours.
 
-Pour lancer l'agent, voir le README de memopipe-local (`bun run canary:agent`). Il exige un jeton : définir `MEMOPIPE_TEAM_TOKEN` sur Render et la même valeur dans `CANARY_TEAM_TOKEN` côté local.
+Le consentement, le fournisseur/modèle, les propositions acceptées, les sauvegardes, tests et décisions sont tracés. L’interface de revue affiche ce journal. Les identités par cookie restent celles d’une démonstration ; l’authentification de production et la politique de rétention restent à prévoir. Le masquage réduit les identifiants connus sans garantir l’anonymisation du texte libre.
+
+Le test `bun run check:workflow` utilise un **fournisseur IA simulé** via HTTP et une base mémoire. Il vérifie le parcours sans appeler OpenAI ni lire vos captures.
 
 ## Les écrans
 
